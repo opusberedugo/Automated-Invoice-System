@@ -40,7 +40,10 @@ async function getSheetsClient(req) {
     throw new Error('MISSING_CONFIG');
   }
 
-  const formattedKey = privateKey.replace(/\\n/g, '\n');
+  const formattedKey = privateKey
+    .replace(/\r/g, '')
+    .replace(/\\n/g, '\n')
+    .trim();
 
   const auth = new google.auth.JWT({
     email,

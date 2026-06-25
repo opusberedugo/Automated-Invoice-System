@@ -151,7 +151,7 @@ export default function App() {
       }
 
       // Always base64 encode key to safely transmit via HTTP headers
-      const encodedKey = btoa(key);
+      const encodedKey = btoa(key.replace(/\r/g, '').trim());
 
       await testConnection(sheetId, email, encodedKey);
     } catch (err) {
