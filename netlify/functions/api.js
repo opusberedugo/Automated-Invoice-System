@@ -8,6 +8,14 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Path rewriter for Netlify Serverless environment
+app.use((req, res, next) => {
+  if (req.url.startsWith('/.netlify/functions/api')) {
+    req.url = req.url.replace('/.netlify/functions/api', '/api');
+  }
+  next();
+});
+
 // Helper to get Google Sheets Client
 async function getSheetsClient(req) {
   let email = req.headers['x-google-email'] || req.query.googleEmail;
@@ -34,12 +42,11 @@ async function getSheetsClient(req) {
 
   const formattedKey = privateKey.replace(/\\n/g, '\n');
 
-  const auth = new google.auth.JWT(
+  const auth = new google.auth.JWT({
     email,
-    null,
-    formattedKey,
-    ['https://www.googleapis.com/auth/spreadsheets']
-  );
+    key: formattedKey,
+    scopes: ['https://www.googleapis.com/auth/spreadsheets']
+  });
 
   const sheets = google.sheets({ version: 'v4', auth });
   return { sheets, sheetId };
