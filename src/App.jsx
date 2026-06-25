@@ -24,6 +24,19 @@ import './App.css';
 // Base API configuration
 const API_BASE = ''; // proxied to Netlify dev or serverless function path
 
+// Safe JSON parser — prevents crash when Netlify returns an HTML error page instead of JSON
+async function safeJson(res) {
+  const text = await res.text();
+  if (text.trim().startsWith('<')) {
+    throw new Error(`Server error (HTTP ${res.status}): API returned an HTML page instead of JSON. Check Netlify function logs.`);
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`Invalid JSON from server (HTTP ${res.status}): ${text.slice(0, 120)}`);
+  }
+}
+
 export default function App() {
   // Connection states
   const [connection, setConnection] = useState(() => {
@@ -70,23 +83,23 @@ export default function App() {
       
       // Fetch settings
       const settingsRes = await fetch(`${API_BASE}/api/settings`, { headers });
-      const settingsData = await settingsRes.json();
+      const settingsData = await safeJson(settingsRes);
       if (settingsData.error) throw new Error(settingsData.error);
       setSettings(settingsData);
 
       // Fetch customers
       const customersRes = await fetch(`${API_BASE}/api/customers`, { headers });
-      const customersData = await customersRes.json();
+      const customersData = await safeJson(customersRes);
       setCustomers(customersData);
 
       // Fetch services
       const servicesRes = await fetch(`${API_BASE}/api/services`, { headers });
-      const servicesData = await servicesRes.json();
+      const servicesData = await safeJson(servicesRes);
       setServices(servicesData);
 
       // Fetch invoices
       const invoicesRes = await fetch(`${API_BASE}/api/invoices`, { headers });
-      const invoicesData = await invoicesRes.json();
+      const invoicesData = await safeJson(invoicesRes);
       setInvoices(invoicesData);
 
       showNotification('success', 'Data synced with Google Sheets');
@@ -169,7 +182,7 @@ export default function App() {
         'x-google-key': encodedKey
       }
     });
-    const data = await res.json();
+    const data = await safeJson(res);
     if (!data.connected) {
       throw new Error(data.error || 'Failed to connect. Please verify Google Sheet ID and share settings.');
     }
@@ -717,7 +730,7 @@ function InvoiceBuilderView({ customers, services, settings, headers, refreshDat
         headers,
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
+      const data = await safeJson(res);
       if (data.success) {
         showNotification('success', `Created Invoice: ${data.InvoiceID}`);
         refreshData();
@@ -1330,11 +1343,12 @@ function SettingsView({ settings, headers, refreshData, showNotification }) {
         headers,
         body: JSON.stringify(formState)
       });
-      if (res.ok) {
+      const data = await safeJson(res);
+      if (data.success) {
         showNotification('success', 'System branding settings saved to sheets database.');
         refreshData();
       } else {
-        throw new Error('Save failed');
+        throw new Error(data.error || 'Save failed');
       }
     } catch (e) {
       showNotification('error', e.message);

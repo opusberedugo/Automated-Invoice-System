@@ -1,3 +1,10 @@
 {
-  "type": "commonjs"
+  "type": "commonjs",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^4.21.2",
+    "googleapis": "^173.0.0",
+    "nodemailer": "^9.0.1",
+    "serverless-http": "^4.0.0"
+  }
 }
