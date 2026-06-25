@@ -127,35 +127,33 @@ export default function App() {
     setIsLoading(true);
 
     try {
-      const { sheetId, googleEmail, googleKey } = wizardData;
-      if (!sheetId || !googleEmail || !googleKey) {
-        throw new Error('All connection fields are required.');
-      }
+      let sheetId = wizardData.sheetId.trim();
+      let email = wizardData.googleEmail.trim();
+      let key = wizardData.googleKey.trim();
 
-      // Format check (make sure it's valid base64 key or raw service account JSON)
-      let formattedKey = googleKey.trim();
-      if (formattedKey.startsWith('{')) {
+      if (key.startsWith('{')) {
         // User pasted service account JSON
         try {
-          const parsed = JSON.parse(formattedKey);
+          const parsed = JSON.parse(key);
           if (parsed.private_key && parsed.client_email) {
-            setWizardData(prev => ({
-              ...prev,
-              googleEmail: parsed.client_email,
-              googleKey: Buffer.from(parsed.private_key).toString('base64')
-            }));
-            // Trigger check with parsed data
-            await testConnection(sheetId, parsed.client_email, parsed.private_key);
-            return;
+            email = parsed.client_email;
+            key = parsed.private_key;
           } else {
             throw new Error('Pasted JSON does not contain private_key or client_email.');
           }
         } catch (je) {
-          throw new Error('Invalid JSON format. Paste valid private key or service account JSON.');
+          throw new Error('Invalid JSON format. Please verify file contents.');
         }
       }
 
-      await testConnection(sheetId, googleEmail, formattedKey);
+      if (!sheetId || !email || !key) {
+        throw new Error('All connection fields are required.');
+      }
+
+      // Always base64 encode key to safely transmit via HTTP headers
+      const encodedKey = btoa(key);
+
+      await testConnection(sheetId, email, encodedKey);
     } catch (err) {
       setWizardError(err.message);
     } finally {
@@ -163,12 +161,12 @@ export default function App() {
     }
   };
 
-  const testConnection = async (sheetId, email, key) => {
+  const testConnection = async (sheetId, email, encodedKey) => {
     const res = await fetch(`${API_BASE}/api/check-connection`, {
       headers: {
         'x-sheet-id': sheetId,
         'x-google-email': email,
-        'x-google-key': key
+        'x-google-key': encodedKey
       }
     });
     const data = await res.json();
@@ -176,7 +174,7 @@ export default function App() {
       throw new Error(data.error || 'Failed to connect. Please verify Google Sheet ID and share settings.');
     }
     
-    const connObj = { sheetId, googleEmail: email, googleKey: key };
+    const connObj = { sheetId, googleEmail: email, googleKey: encodedKey };
     localStorage.setItem('invoice_db_connection', JSON.stringify(connObj));
     setWizardSuccess(`Successfully connected to sheet!`);
     setTimeout(() => {
