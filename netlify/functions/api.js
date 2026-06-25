@@ -10,9 +10,15 @@ app.use(express.json());
 
 // Path rewriter for Netlify Serverless environment
 app.use((req, res, next) => {
-  if (req.url.startsWith('/.netlify/functions/api')) {
+  // Case 1: called directly via /.netlify/functions/api/...
+  if (req.url.includes('/.netlify/functions/api')) {
     req.url = req.url.replace('/.netlify/functions/api', '/api');
   }
+  // Case 2: called via redirect, path does NOT start with /api (bare path like /check-connection)
+  else if (!req.url.startsWith('/api')) {
+    req.url = '/api' + req.url;
+  }
+  // Case 3: already /api/... — no change needed
   next();
 });
 
@@ -133,6 +139,11 @@ async function updateRow(sheets, sheetId, tabName, keyColumnName, keyValue, head
 }
 
 // --- API Endpoints ---
+
+// 0. Health check — visit /api/ping to verify function is alive
+app.get('/api/ping', (req, res) => {
+  res.json({ ok: true, message: 'Netlify function is running', path: req.url });
+});
 
 // 1. Connection check & config verification
 app.get('/api/check-connection', async (req, res) => {
