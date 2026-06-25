@@ -1,10 +1,8 @@
 /**
- * Netlify Function — api.js (ESM, zero external deps except nodemailer)
- * Uses Node.js built-in `fetch` + `crypto` to talk to Google Sheets REST API directly.
- * This avoids the `googleapis` package which causes silent bundler failures on Netlify.
+ * Netlify Function — api.js
+ * Zero external dependencies: uses only Node.js built-ins (crypto, fetch).
  */
 import { createSign } from 'node:crypto';
-import nodemailer from 'nodemailer';
 
 // ─── Response helpers ─────────────────────────────────────────────────────────
 const CORS = {
@@ -270,20 +268,9 @@ export const handler = async (event) => {
       return ok({ success: true });
     }
 
-    // ── POST /api/invoices/send-email ────────────────────────────────────────
+    // ── POST /api/invoices/send-email (email coming soon) ──────────────────────
     if (method === 'POST' && path === '/api/invoices/send-email') {
-      const { invoice, pdfDataUri, emailConfig } = JSON.parse(event.body || '{}');
-      const { host, port = 587, user, pass, from, companyName } = emailConfig || {};
-      if (!user || !pass) return err(400, 'Mail credentials not configured.');
-      const t = nodemailer.createTransport({ host, port: Number(port), secure: Number(port) === 465, auth: { user, pass } });
-      await t.sendMail({
-        from:        from || `Billing <${user}>`,
-        to:          invoice.Customer.Email,
-        subject:     `Invoice ${invoice.InvoiceID} from ${companyName || 'Us'}`,
-        text:        `Hello ${invoice.Customer.Name},\n\nAttached is invoice ${invoice.InvoiceID}.\nDue: ${invoice.DueDate}  Total: ${invoice.Total}\n\nThank you!`,
-        attachments: [{ filename: `Invoice_${invoice.InvoiceID}.pdf`, content: Buffer.from(pdfDataUri.split(',')[1], 'base64') }]
-      });
-      return ok({ success: true });
+      return err(501, 'Email sending is temporarily disabled. Core invoice features work.');
     }
 
     return err(404, `No route: ${method} ${path}`);
