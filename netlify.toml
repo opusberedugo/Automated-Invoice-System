@@ -16,8 +16,9 @@
 
 [[redirects]]
   from = "/api/*"
-  to = "/.netlify/functions/api/:splat"
+  to = "https://automated-invoice-server.onrender.com/api/:splat"
   status = 200
+  force = true
 
 # SPA fallback — must be last
 [[redirects]]
