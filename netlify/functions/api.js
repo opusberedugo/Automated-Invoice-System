@@ -453,5 +453,6 @@ app.post('/api/invoices/send-email', async (req, res) => {
   }
 });
 
-// Wrap express server in Serverless Handler
+// Export app for standalone server, and handler for serverless
+module.exports = app;
 module.exports.handler = serverless(app);

@@ -22,7 +22,7 @@ import {
 import './App.css';
 
 // Base API configuration
-const API_BASE = ''; // proxied to Netlify dev or serverless function path
+const API_BASE = import.meta.env.VITE_API_BASE || ''; // proxied to Netlify dev or serverless function path or Render URL
 
 export default function App() {
   // Connection states
@@ -468,7 +468,7 @@ function DashboardView({ invoices, settings, onNavigate, headers, refreshData, s
     setIsUpdatingStatus(invoiceId);
 
     try {
-      const res = await fetch(`/api/invoices/${invoiceId}/status`, {
+      const res = await fetch(`${API_BASE}/api/invoices/${invoiceId}/status`, {
         method: 'PATCH',
         headers,
         body: JSON.stringify({ status: nextStatus })
@@ -712,7 +712,7 @@ function InvoiceBuilderView({ customers, services, settings, headers, refreshDat
         items: items
       };
 
-      const res = await fetch('/api/invoices', {
+      const res = await fetch(`${API_BASE}/api/invoices`, {
         method: 'POST',
         headers,
         body: JSON.stringify(payload)
@@ -1075,7 +1075,7 @@ function CustomersView({ customers, headers, refreshData, showNotification }) {
 
     setIsSubmitting(true);
     try {
-      const res = await fetch('/api/customers', {
+      const res = await fetch(`${API_BASE}/api/customers`, {
         method: 'POST',
         headers,
         body: JSON.stringify(newCust)
@@ -1207,7 +1207,7 @@ function ServicesView({ services, headers, refreshData, showNotification }) {
 
     setIsSubmitting(true);
     try {
-      const res = await fetch('/api/services', {
+      const res = await fetch(`${API_BASE}/api/services`, {
         method: 'POST',
         headers,
         body: JSON.stringify(newSrv)
@@ -1325,7 +1325,7 @@ function SettingsView({ settings, headers, refreshData, showNotification }) {
     setIsSubmitting(true);
 
     try {
-      const res = await fetch('/api/settings', {
+      const res = await fetch(`${API_BASE}/api/settings`, {
         method: 'POST',
         headers,
         body: JSON.stringify(formState)
