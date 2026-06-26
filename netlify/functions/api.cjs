@@ -142,7 +142,14 @@ async function ensureSheetTab(sheets, sheetId, tabName, headers) {
     });
   } catch (error) {
     const msg = error.message || '';
-    if (msg.includes('not found') || msg.includes('Range not found') || msg.includes('400') || msg.includes('404')) {
+    const code = error.code || error.status;
+    if (
+      msg.includes('not found') || 
+      msg.includes('Range not found') || 
+      msg.includes('Unable to parse range') || 
+      code === 400 || 
+      code === 404
+    ) {
       console.log(`[database] Tab "${tabName}" not found. Creating it...`);
       // Create sheet tab
       await sheets.spreadsheets.batchUpdate({
