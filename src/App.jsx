@@ -30,6 +30,24 @@ async function safeJson(res) {
   }
 }
 
+// Global date formatting helper
+function formatDateDMY(dateString) {
+  if (!dateString) return 'DD/MM/YYYY';
+  try {
+    const d = new Date(dateString);
+    if (isNaN(d.getTime())) {
+      const parts = dateString.split('-');
+      if (parts.length === 3) {
+        return `${parts[2]}/${parts[1]}/${parts[0]}`;
+      }
+      return dateString;
+    }
+    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+  } catch {
+    return dateString;
+  }
+}
+
 export default function App() {
   // User authentication state
   const [auth, setAuth] = useState(() => {
@@ -52,6 +70,9 @@ export default function App() {
   const [services, setServices] = useState([]);
   const [settings, setSettings] = useState({});
   
+  const [editingInvoice, setEditingInvoice] = useState(null);
+  const [printingInvoice, setPrintingInvoice] = useState(null);
+  
   // UI States
   const [currentTab, setCurrentTab] = useState('dashboard');
   const [isLoading, setIsLoading] = useState(false);
@@ -66,6 +87,13 @@ export default function App() {
       'Authorization': `Bearer ${auth.token}`,
       'Content-Type': 'application/json'
     };
+  };
+
+  const handlePrintInvoice = (inv) => {
+    setPrintingInvoice(inv);
+    setTimeout(() => {
+      window.print();
+    }, 150);
   };
 
   // Fetch core data from Google Sheet
@@ -318,10 +346,18 @@ export default function App() {
           <DashboardView 
             invoices={invoices} 
             settings={settings} 
-            onNavigate={() => setCurrentTab('create-invoice')} 
+            onNavigate={() => {
+              setEditingInvoice(null);
+              setCurrentTab('create-invoice');
+            }} 
             headers={getHeaders()}
             refreshData={fetchAllData}
             showNotification={showNotification}
+            onEditInvoice={(inv) => {
+              setEditingInvoice(inv);
+              setCurrentTab('create-invoice');
+            }}
+            onPrintInvoice={handlePrintInvoice}
           />
         )}
         {currentTab === 'create-invoice' && (
@@ -332,7 +368,12 @@ export default function App() {
             headers={getHeaders()}
             refreshData={fetchAllData}
             showNotification={showNotification}
-            onBack={() => setCurrentTab('dashboard')}
+            onBack={() => {
+              setEditingInvoice(null);
+              setCurrentTab('dashboard');
+            }}
+            editingInvoice={editingInvoice}
+            onPrintInvoice={handlePrintInvoice}
           />
         )}
         {currentTab === 'customers' && (
@@ -366,6 +407,8 @@ export default function App() {
           />
         )}
       </main>
+
+      <PrintOnlyInvoice invoice={printingInvoice} settings={settings} />
     </>
   );
 }
@@ -373,7 +416,7 @@ export default function App() {
 // --- SUBVIEWS ---
 
 // 1. Dashboard View
-function DashboardView({ invoices, settings, onNavigate, headers, refreshData, showNotification }) {
+function DashboardView({ invoices, settings, onNavigate, headers, refreshData, showNotification, onEditInvoice, onPrintInvoice }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(null);
@@ -540,7 +583,13 @@ function DashboardView({ invoices, settings, onNavigate, headers, refreshData, s
             <tbody>
               {filteredInvoices.map((invoice) => (
                 <tr key={invoice.InvoiceID}>
-                  <td style={{ fontWeight: 600, color: 'var(--text-dark)' }}>{invoice.InvoiceID}</td>
+                  <td 
+                    style={{ fontWeight: 600, color: 'var(--accent)', cursor: 'pointer', textDecoration: 'underline' }}
+                    onClick={() => onEditInvoice(invoice)}
+                    title="Click to edit invoice"
+                  >
+                    {invoice.InvoiceID}
+                  </td>
                   <td>
                     <div style={{ fontWeight: 500, color: 'var(--text-dark)' }}>{invoice.Customer?.Name || invoice.CustomerID}</div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{invoice.Customer?.Email}</div>
@@ -572,10 +621,7 @@ function DashboardView({ invoices, settings, onNavigate, headers, refreshData, s
                       <button 
                         className="btn btn-secondary" 
                         style={{ padding: '6px 10px', fontSize: '0.75rem' }}
-                        onClick={() => {
-                          // Client-side print target
-                          window.print();
-                        }}
+                        onClick={() => onPrintInvoice(invoice)}
                       >
                         <Printer size={12} />
                         Print
@@ -593,7 +639,7 @@ function DashboardView({ invoices, settings, onNavigate, headers, refreshData, s
 }
 
 // 2. Invoice Builder Component
-function InvoiceBuilderView({ customers, services, settings, headers, refreshData, showNotification, onBack }) {
+function InvoiceBuilderView({ customers, services, settings, headers, refreshData, showNotification, onBack, editingInvoice, onPrintInvoice }) {
   const [invoice, setInvoice] = useState({
     CustomerID: '',
     IssueDate: new Date().toISOString().split('T')[0],
@@ -628,6 +674,48 @@ function InvoiceBuilderView({ customers, services, settings, headers, refreshDat
     const cust = customers.find(c => c.CustomerID === invoice.CustomerID);
     setSelectedCustDetails(cust || null);
   }, [invoice.CustomerID, customers]);
+
+  // Reset search / editing state when editingInvoice changes
+  useEffect(() => {
+    if (editingInvoice) {
+      setInvoice({
+        InvoiceID: editingInvoice.InvoiceID,
+        CustomerID: editingInvoice.CustomerID,
+        IssueDate: editingInvoice.IssueDate,
+        DueDate: editingInvoice.DueDate,
+        PaymentTerms: editingInvoice.PaymentTerms,
+        Discount: parseFloat(editingInvoice.Discount || 0),
+        TaxRate: parseFloat(editingInvoice.TaxRate || 0),
+        Notes: editingInvoice.Notes,
+        Status: editingInvoice.Status
+      });
+      if (editingInvoice.Items && editingInvoice.Items.length > 0) {
+        setItems(editingInvoice.Items.map(item => ({
+          ItemID: item.ItemID,
+          Description: item.Description,
+          QTY: parseInt(item.QTY) || 1,
+          Unit: item.Unit || 'page',
+          Cost: parseFloat(item.Cost) || 0
+        })));
+      } else {
+        setItems([{ Description: '', QTY: 1, Unit: 'page', Cost: 0 }]);
+      }
+      const cust = customers.find(c => c.CustomerID === editingInvoice.CustomerID);
+      setCustomerSearch(cust ? cust.Name : '');
+    } else {
+      setInvoice({
+        CustomerID: '',
+        IssueDate: new Date().toISOString().split('T')[0],
+        DueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        PaymentTerms: settings.default_payment_terms || 'Net 14',
+        Discount: 0,
+        TaxRate: parseFloat(settings.default_tax_rate || 0.11),
+        Notes: 'Thank you for your business. Please complete the payment before the due date.'
+      });
+      setItems([{ Description: '', QTY: 1, Unit: 'page', Cost: 0 }]);
+      setCustomerSearch('');
+    }
+  }, [editingInvoice, customers, settings]);
 
   // Compute invoice financial calculations
   const finances = useMemo(() => {
@@ -683,6 +771,7 @@ function InvoiceBuilderView({ customers, services, settings, headers, refreshDat
     try {
       const payload = {
         invoiceData: {
+          InvoiceID: invoice.InvoiceID || undefined,
           IssueDate: invoice.IssueDate,
           DueDate: invoice.DueDate,
           PaymentTerms: invoice.PaymentTerms,
@@ -706,11 +795,11 @@ function InvoiceBuilderView({ customers, services, settings, headers, refreshDat
       });
       const data = await safeJson(res);
       if (data.success) {
-        showNotification('success', `Created Invoice: ${data.InvoiceID}`);
+        showNotification('success', editingInvoice ? `Updated Invoice: ${data.InvoiceID}` : `Created Invoice: ${data.InvoiceID}`);
         refreshData();
         onBack();
       } else {
-        throw new Error(data.error || 'Server error creating invoice.');
+        throw new Error(data.error || 'Server error saving invoice.');
       }
     } catch (e) {
       showNotification('error', e.message);
@@ -753,7 +842,9 @@ function InvoiceBuilderView({ customers, services, settings, headers, refreshDat
         <button className="btn btn-secondary" onClick={onBack} style={{ padding: '8px' }}>
           <ArrowLeft size={16} />
         </button>
-        <h1 style={{ margin: 0, fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '1.5rem' }}>Create New Invoice</h1>
+        <h1 style={{ margin: 0, fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '1.5rem' }}>
+          {editingInvoice ? `Edit Invoice: ${editingInvoice.InvoiceID}` : 'Create New Invoice'}
+        </h1>
       </div>
 
       <div className="creator-container">
@@ -973,9 +1064,7 @@ function InvoiceBuilderView({ customers, services, settings, headers, refreshDat
               />
             </div>
           </div>
-
         </div>
-
         {/* Right Preview Panel (Sticky & Live A4 Invoice Sheet) */}
         <div className="creator-panel-right">
           <div className="invoice-preview-card">
@@ -984,6 +1073,10 @@ function InvoiceBuilderView({ customers, services, settings, headers, refreshDat
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button className="btn btn-secondary" onClick={() => handleSaveInvoice('Draft')} disabled={isSaving}>
                   Save Draft
+                </button>
+                <button className="btn btn-secondary" onClick={() => onPrintInvoice({ ...invoice, Customer: selectedCustDetails, Total: finances.total, Items: items })} disabled={isSaving}>
+                  <Printer size={14} />
+                  Print
                 </button>
                 <button className="btn btn-primary" onClick={() => handleSaveInvoice('Sent')} disabled={isSaving}>
                   <Send size={14} />
@@ -994,219 +1087,163 @@ function InvoiceBuilderView({ customers, services, settings, headers, refreshDat
 
             {/* A4 Paper Template */}
             <div className="invoice-paper" id="invoice-paper-element">
-              {/* Header section */}
-              <div className="valora-header">
-                <div className="valora-header-left">
-                  <img src="/logo.svg" alt="Valora Logo" className="valora-paper-logo" />
-                  <div className="valora-brand-title">VALORA</div>
-                  <div className="valora-brand-subtitle">INTEGRATION SOLUTIONS LIMITED</div>
-                  
-                  <div className="valora-invoice-title-block">
-                    <h1 className="valora-invoice-title">INVOICE</h1>
-                    <div className="valora-invoice-num-pill">
-                      INVOICE NO. <span>{invoice.InvoiceID || 'INV-2025-XXXX'}</span>
-                    </div>
+              {/* Header Grid */}
+              <div className="valora-new-header-grid">
+                {/* Left Column: Blue contact card */}
+                <div className="valora-new-blue-card">
+                  <div className="valora-new-blue-card-item">
+                    <span className="valora-new-icon">📞</span>
+                    <span>{settings.company_phone || '+234 806 356 9170'}</span>
+                  </div>
+                  <div className="valora-new-blue-card-item">
+                    <span className="valora-new-icon">📍</span>
+                    <span className="valora-new-address">{settings.company_address || '#3 Woji Close, Mangrove Lane, Woji Road, Port Harcourt.'}</span>
+                  </div>
+                  <div className="valora-new-blue-card-item">
+                    <span className="valora-new-icon">🌐</span>
+                    <span>{settings.company_website || 'www.valora.com.ng'}</span>
+                  </div>
+                  <div className="valora-new-blue-card-item">
+                    <span className="valora-new-icon">✉️</span>
+                    <span>{settings.company_email || 'info@valora.com.ng'}</span>
                   </div>
                 </div>
 
-                <div className="valora-header-right">
-                  <div className="valora-contact-block">
-                    <div className="valora-contact-item">
-                      <span className="valora-contact-icon">📞</span>
-                      <span>+234 806 346 9170</span>
-                    </div>
-                    <div className="valora-contact-item">
-                      <span className="valora-contact-icon">📍</span>
-                      <span className="valora-contact-address">
-                        No 3 Worji Close, Magrove Lane,<br />
-                        Woju Road, Port Harcourt,<br />
-                        Rivers State, Nigeria.
-                      </span>
-                    </div>
-                    <div className="valora-contact-item">
-                      <span className="valora-contact-icon">✉️</span>
-                      <span>info@valora.com.ng</span>
-                    </div>
-                    <div className="valora-contact-item">
-                      <span className="valora-contact-icon">🌐</span>
-                      <span>www.valora.com.ng</span>
-                    </div>
+                {/* Right Column: Logo & INVOICE title */}
+                <div className="valora-new-header-right">
+                  <div style={{ textAlign: 'right' }}>
+                    <img src="/logo.svg" alt="Valora Logo" className="valora-new-logo-img" />
+                  </div>
+                  <div className="valora-new-invoice-word">INVOICE</div>
+                  <div className="valora-new-double-lines"></div>
+                  <div className="valora-new-meta-row">
+                    INVOICE NO. <span className="valora-new-meta-val">{invoice.InvoiceID || 'INV-2026-XXXX'}</span>
+                  </div>
+                  <div className="valora-new-meta-row" style={{ marginTop: '4px' }}>
+                    Date: <span className="valora-new-meta-val">{formatDateDMY(invoice.IssueDate)}</span>
                   </div>
                 </div>
               </div>
 
-              {/* Bill To & Date section */}
-              <div className="valora-bill-date-section">
-                <div className="valora-bill-to-box">
-                  <div className="valora-bill-to-tab">BILL TO</div>
-                  <div className="valora-bill-to-content">
-                    <div className="valora-bill-row">
-                      <span className="valora-bill-icon">👤</span>
-                      <span className="valora-bill-label">Name:</span>
-                      <span className="valora-bill-value">{selectedCustDetails?.Name || '______________________________________'}</span>
-                    </div>
-                    <div className="valora-bill-row">
-                      <span className="valora-bill-icon">🏢</span>
-                      <span className="valora-bill-label">Address:</span>
-                      <span className="valora-bill-value valora-bill-address">{selectedCustDetails?.Address || '______________________________________'}</span>
-                    </div>
+              {/* Bill To section */}
+              <div className="valora-new-bill-to-container">
+                <div className="valora-new-bill-to-box">
+                  <div className="valora-new-bill-to-title">BILL TO</div>
+                  <div className="valora-new-bill-to-row">
+                    <span className="valora-new-bill-icon">👤</span>
+                    <span className="valora-new-bill-label">Name:</span>
+                    <span className="valora-new-bill-value">{selectedCustDetails?.Name || '_______________________'}</span>
                   </div>
-                </div>
-
-                <div className="valora-date-box">
-                  <div className="valora-date-header">
-                    <span className="valora-date-icon">📅</span>
-                    <span className="valora-date-title">INVOICE DATE</span>
-                  </div>
-                  <div className="valora-date-grid">
-                    <div className="valora-date-part">
-                      <div className="valora-date-val">{parseDateParts(invoice.IssueDate).day}</div>
-                      <div className="valora-date-lbl">DAY</div>
-                    </div>
-                    <div className="valora-date-part">
-                      <div className="valora-date-val">{parseDateParts(invoice.IssueDate).month}</div>
-                      <div className="valora-date-lbl">MONTH</div>
-                    </div>
-                    <div className="valora-date-part">
-                      <div className="valora-date-val">{parseDateParts(invoice.IssueDate).year}</div>
-                      <div className="valora-date-lbl">YEAR</div>
-                    </div>
+                  <div className="valora-new-bill-to-row" style={{ marginTop: '8px' }}>
+                    <span className="valora-new-bill-icon">🏢</span>
+                    <span className="valora-new-bill-label">Address:</span>
+                    <span className="valora-new-bill-value valora-new-bill-address">{selectedCustDetails?.Address || '_______________________'}</span>
                   </div>
                 </div>
               </div>
 
               {/* Table section */}
-              <div className="valora-table-container">
-                <table className="valora-table">
+              <div className="valora-new-table-container">
+                <table className="valora-new-table">
                   <thead>
                     <tr>
-                      <th style={{ width: '8%' }}>#</th>
-                      <th style={{ width: '52%', textAlign: 'left' }}>DESCRIPTION</th>
-                      <th style={{ width: '10%' }}>QTY</th>
-                      <th style={{ width: '15%' }}>UNIT PRICE</th>
+                      <th style={{ width: '8%', textAlign: 'center' }}>#</th>
+                      <th style={{ width: '52%', textAlign: 'left' }}>ITEM DESCRIPTION</th>
+                      <th style={{ width: '10%', textAlign: 'center' }}>QTY</th>
+                      <th style={{ width: '15%', textAlign: 'right' }}>UNIT PRICE</th>
                       <th style={{ width: '15%', textAlign: 'right' }}>AMOUNT</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {/* Render active items */}
                     {items.map((item, idx) => (
                       <tr key={idx}>
-                        <td>{idx + 1}</td>
+                        <td style={{ textAlign: 'center' }}>{idx + 1}</td>
                         <td style={{ textAlign: 'left', fontWeight: 500 }}>{item.Description || 'Untitled Item'}</td>
-                        <td>{item.QTY}</td>
-                        <td>{formatCurrency(item.Cost)}</td>
+                        <td style={{ textAlign: 'center' }}>{item.QTY}</td>
+                        <td style={{ textAlign: 'right' }}>{formatCurrency(item.Cost)}</td>
                         <td style={{ textAlign: 'right', fontWeight: 700 }}>{formatCurrency(Number(item.QTY || 0) * Number(item.Cost || 0))}</td>
                       </tr>
                     ))}
-                    {/* Pad up to 12 rows */}
-                    {items.length < 12 && Array.from({ length: 12 - items.length }).map((_, idx) => {
-                      const rowNum = items.length + idx + 1;
-                      return (
-                        <tr key={`empty-${idx}`} className="valora-empty-row">
-                          <td>{rowNum}</td>
-                          <td></td>
-                          <td></td>
-                          <td></td>
-                          <td style={{ textAlign: 'right' }}></td>
-                        </tr>
-                      );
-                    })}
+                    {/* Pad rows up to 12 */}
+                    {items.length < 12 && 
+                      Array.from({ length: 12 - items.length }).map((_, idx) => {
+                        const rowNum = items.length + idx + 1;
+                        return (
+                          <tr key={`empty-${idx}`} className="valora-new-empty-row">
+                            <td style={{ textAlign: 'center' }}>{rowNum}</td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                            <td></td>
+                          </tr>
+                        );
+                      })
+                    }
                   </tbody>
                 </table>
               </div>
 
-              {/* Summary and Payment section */}
-              <div className="valora-summary-payment-grid">
-                {/* Left side: Payment Info & Terms */}
-                <div className="valora-payment-terms-side">
-                  <div className="valora-payment-box">
-                    <div className="valora-payment-title">PAYMENT INFORMATION</div>
-                    <div className="valora-payment-row">
-                      <span className="valora-payment-icon">🏛️</span>
-                      <span className="valora-payment-label">Bank Name:</span>
-                      <span className="valora-payment-value">{settings.bank_name || '__________________________'}</span>
+              {/* Bottom summary and signatures */}
+              <div className="valora-new-bottom-grid">
+                {/* Left side: Payment Info and Terms */}
+                <div className="valora-new-bottom-left">
+                  <div className="valora-new-payment-box">
+                    <div className="valora-new-payment-title">Payment Information:</div>
+                    <div className="valora-new-payment-row">
+                      <span className="valora-new-payment-label">Account Name:</span>
+                      <span className="valora-new-payment-value">{settings.bank_account_name || '______________________'}</span>
                     </div>
-                    <div className="valora-payment-row">
-                      <span className="valora-payment-icon">💳</span>
-                      <span className="valora-payment-label">Account Name:</span>
-                      <span className="valora-payment-value">{settings.bank_account_name || '__________________________'}</span>
+                    <div className="valora-new-payment-row">
+                      <span className="valora-new-payment-label">Account No.:</span>
+                      <span className="valora-new-payment-value">{settings.bank_account_number || '______________________'}</span>
                     </div>
-                    <div className="valora-payment-row">
-                      <span className="valora-payment-icon">📋</span>
-                      <span className="valora-payment-label">Account Number:</span>
-                      <span className="valora-payment-value">{settings.bank_account_number || '__________________________'}</span>
+                    <div className="valora-new-payment-row">
+                      <span className="valora-new-payment-label">Bank Name:</span>
+                      <span className="valora-new-payment-value">{settings.bank_name || '______________________'}</span>
                     </div>
                   </div>
 
-                  <div className="valora-terms-box">
-                    <div className="valora-section-title">
-                      <span className="valora-title-icon">📋</span> TERMS & CONDITIONS
-                    </div>
-                    <ul className="valora-terms-list">
-                      <li>Payment is due within 7 days from the invoice date.</li>
-                      <li>Please make payment to the account details provided.</li>
-                      <li>Thank you for your business!</li>
+                  <div className="valora-new-terms-box">
+                    <div className="valora-new-terms-title">TERMS & CONDITIONS</div>
+                    <ul className="valora-new-terms-list">
+                      <li>* Payment is due within 7 days from the invoice date.</li>
+                      <li>* Payments should be made to the account details provided.</li>
+                      <li>* Thank you for your business.</li>
                     </ul>
                   </div>
                 </div>
 
-                {/* Right side: Summary & Totals */}
-                <div className="valora-totals-side">
-                  <div className="valora-summary-box">
-                    <div className="valora-summary-title">SUMMARY</div>
-                    <div className="valora-summary-row">
-                      <span>SUBTOTAL</span>
+                {/* Right side: Summary Totals */}
+                <div className="valora-new-bottom-right">
+                  <div className="valora-new-summary-box">
+                    <div className="valora-new-summary-row">
+                      <span>Subtotal:</span>
                       <span>{formatCurrency(finances.subtotal)}</span>
                     </div>
+                    <div className="valora-new-summary-row" style={{ marginTop: '4px' }}>
+                      <span>Vat. ({(invoice.TaxRate * 100).toFixed(0)}%):</span>
+                      <span>{formatCurrency(finances.taxAmount)}</span>
+                    </div>
                     {invoice.Discount > 0 && (
-                      <div className="valora-summary-row discount">
-                        <span>DISCOUNT</span>
+                      <div className="valora-new-summary-row discount" style={{ marginTop: '4px' }}>
+                        <span>Discount:</span>
                         <span>-{formatCurrency(invoice.Discount)}</span>
                       </div>
                     )}
-                    <div className="valora-summary-row">
-                      <span>TAX ({(invoice.TaxRate * 100).toFixed(0)}%)</span>
-                      <span>{formatCurrency(finances.taxAmount)}</span>
-                    </div>
-
-                    <div className="valora-total-pill">
-                      <div className="valora-total-lbl">TOTAL</div>
-                      <div className="valora-total-val">{formatCurrency(finances.total)}</div>
+                    
+                    <div className="valora-new-total-row-blue">
+                      <span>TOTAL:</span>
+                      <span>{formatCurrency(finances.total)}</span>
                     </div>
                   </div>
 
-                  <div className="valora-thankyou-box">
-                    <div className="valora-thankyou-title">
-                      <span className="valora-title-icon">🤝</span> THANK YOU
-                    </div>
-                    <p className="valora-thankyou-text">
-                      We appreciate your trust in Valora Integration Solutions Limited.
-                    </p>
+                  <div className="valora-new-signature-box">
+                    <div className="valora-new-signature-line"></div>
+                    <div className="valora-new-signature-label">Customer Signature</div>
                   </div>
-                </div>
-              </div>
-
-              {/* Bottom footer signature block & banner */}
-              <div className="valora-footer-signature-row">
-                <div className="valora-signature-block">
-                  <div className="valora-signature-title">
-                    <span className="valora-title-icon">✍️</span> CUSTOMER SIGNATURE
-                  </div>
-                  <div className="valora-signature-line"></div>
-                </div>
-              </div>
-
-              {/* Bottom banner strip */}
-              <div className="valora-bottom-banner">
-                <div className="valora-banner-left">
-                  Integrating Solutions, Delivering Value.
-                </div>
-                <div className="valora-banner-right">
-                  <div className="valora-banner-drop">💧</div>
                 </div>
               </div>
             </div>
-
           </div>
         </div>
       </div>
@@ -1852,6 +1889,211 @@ function ManageUsersView({ headers, showNotification }) {
                 </tbody>
               </table>
             )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 6. Print Only Invoice Component
+function PrintOnlyInvoice({ invoice, settings }) {
+  if (!invoice) return null;
+
+  const formatDateDMY = (dateString) => {
+    if (!dateString) return 'DD/MM/YYYY';
+    try {
+      const d = new Date(dateString);
+      if (isNaN(d.getTime())) return dateString;
+      return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+    } catch {
+      return dateString;
+    }
+  };
+
+  const formatCurrency = (val) => {
+    const cur = settings.default_currency || 'NGN';
+    const locale = cur === 'NGN' ? 'en-NG' : undefined;
+    return new Intl.NumberFormat(locale, { style: 'currency', currency: cur, maximumFractionDigits: 0 }).format(val);
+  };
+
+  const items = invoice.Items || invoice.items || [];
+  const subtotal = items.reduce((sum, item) => {
+    const qty = Number(item.QTY || item.qty || 0);
+    const cost = Number(item.Cost || item.cost || 0);
+    return sum + (qty * cost);
+  }, 0);
+
+  const discount = Number(invoice.Discount || invoice.discount || 0);
+  const taxRate = Number(invoice.TaxRate || invoice.tax_rate || 0);
+  const taxAmount = (subtotal - discount) * taxRate;
+  const total = (subtotal - discount) + taxAmount;
+
+  const customerName = invoice.Customer?.Name || invoice.customer?.name || invoice.CustomerID || invoice.customer_id || '_______________________';
+  const customerAddress = invoice.Customer?.Address || invoice.customer?.address || '_______________________';
+
+  return (
+    <div className="print-only-container">
+      <div className="print-paper invoice-paper">
+        {/* Header Grid */}
+        <div className="valora-new-header-grid">
+          {/* Left Column: Blue contact card */}
+          <div className="valora-new-blue-card">
+            <div className="valora-new-blue-card-item">
+              <span className="valora-new-icon">📞</span>
+              <span>{settings.company_phone || '+234 806 356 9170'}</span>
+            </div>
+            <div className="valora-new-blue-card-item">
+              <span className="valora-new-icon">📍</span>
+              <span className="valora-new-address">{settings.company_address || '#3 Woji Close, Mangrove Lane, Woji Road, Port Harcourt.'}</span>
+            </div>
+            <div className="valora-new-blue-card-item">
+              <span className="valora-new-icon">🌐</span>
+              <span>{settings.company_website || 'www.valora.com.ng'}</span>
+            </div>
+            <div className="valora-new-blue-card-item">
+              <span className="valora-new-icon">✉️</span>
+              <span>{settings.company_email || 'info@valora.com.ng'}</span>
+            </div>
+          </div>
+
+          {/* Right Column: Logo & INVOICE title */}
+          <div className="valora-new-header-right">
+            <div style={{ textAlign: 'right' }}>
+              <img src="/logo.svg" alt="Valora Logo" className="valora-new-logo-img" />
+            </div>
+            <div className="valora-new-invoice-word">INVOICE</div>
+            <div className="valora-new-double-lines"></div>
+            <div className="valora-new-meta-row">
+              INVOICE NO. <span className="valora-new-meta-val">{invoice.InvoiceID || invoice.invoice_id || 'INV-2026-XXXX'}</span>
+            </div>
+            <div className="valora-new-meta-row" style={{ marginTop: '4px' }}>
+              Date: <span className="valora-new-meta-val">{formatDateDMY(invoice.IssueDate || invoice.issue_date)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Bill To section */}
+        <div className="valora-new-bill-to-container">
+          <div className="valora-new-bill-to-box">
+            <div className="valora-new-bill-to-title">BILL TO</div>
+            <div className="valora-new-bill-to-row">
+              <span className="valora-new-bill-icon">👤</span>
+              <span className="valora-new-bill-label">Name:</span>
+              <span className="valora-new-bill-value">{customerName}</span>
+            </div>
+            <div className="valora-new-bill-to-row" style={{ marginTop: '8px' }}>
+              <span className="valora-new-bill-icon">🏢</span>
+              <span className="valora-new-bill-label">Address:</span>
+              <span className="valora-new-bill-value valora-new-bill-address">{customerAddress}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Table section */}
+        <div className="valora-new-table-container">
+          <table className="valora-new-table">
+            <thead>
+              <tr>
+                <th style={{ width: '8%', textAlign: 'center' }}>#</th>
+                <th style={{ width: '52%', textAlign: 'left' }}>ITEM DESCRIPTION</th>
+                <th style={{ width: '10%', textAlign: 'center' }}>QTY</th>
+                <th style={{ width: '15%', textAlign: 'right' }}>UNIT PRICE</th>
+                <th style={{ width: '15%', textAlign: 'right' }}>AMOUNT</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item, idx) => {
+                const qty = Number(item.QTY || item.qty || 0);
+                const cost = Number(item.Cost || item.cost || 0);
+                const amount = qty * cost;
+                return (
+                  <tr key={idx}>
+                    <td style={{ textAlign: 'center' }}>{idx + 1}</td>
+                    <td style={{ textAlign: 'left', fontWeight: 500 }}>{item.Description || item.description || 'Untitled Item'}</td>
+                    <td style={{ textAlign: 'center' }}>{qty}</td>
+                    <td style={{ textAlign: 'right' }}>{formatCurrency(cost)}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 700 }}>{formatCurrency(amount)}</td>
+                  </tr>
+                );
+              })}
+              {/* Pad rows up to 12 */}
+              {items.length < 12 && 
+                Array.from({ length: 12 - items.length }).map((_, idx) => {
+                  const rowNum = items.length + idx + 1;
+                  return (
+                    <tr key={`empty-${idx}`} className="valora-new-empty-row">
+                      <td style={{ textAlign: 'center' }}>{rowNum}</td>
+                      <td></td>
+                      <td></td>
+                      <td></td>
+                      <td></td>
+                    </tr>
+                  );
+                })
+              }
+            </tbody>
+          </table>
+        </div>
+
+        {/* Bottom summary and signatures */}
+        <div className="valora-new-bottom-grid">
+          {/* Left side: Payment Info and Terms */}
+          <div className="valora-new-bottom-left">
+            <div className="valora-new-payment-box">
+              <div className="valora-new-payment-title">Payment Information:</div>
+              <div className="valora-new-payment-row">
+                <span className="valora-new-payment-label">Account Name:</span>
+                <span className="valora-new-payment-value">{settings.bank_account_name || '______________________'}</span>
+              </div>
+              <div className="valora-new-payment-row">
+                <span className="valora-new-payment-label">Account No.:</span>
+                <span className="valora-new-payment-value">{settings.bank_account_number || '______________________'}</span>
+              </div>
+              <div className="valora-new-payment-row">
+                <span className="valora-new-payment-label">Bank Name:</span>
+                <span className="valora-new-payment-value">{settings.bank_name || '______________________'}</span>
+              </div>
+            </div>
+
+            <div className="valora-new-terms-box">
+              <div className="valora-new-terms-title">TERMS & CONDITIONS</div>
+              <ul className="valora-new-terms-list">
+                <li>* Payment is due within 7 days from the invoice date.</li>
+                <li>* Payments should be made to the account details provided.</li>
+                <li>* Thank you for your business.</li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Right side: Summary Totals */}
+          <div className="valora-new-bottom-right">
+            <div className="valora-new-summary-box">
+              <div className="valora-new-summary-row">
+                <span>Subtotal:</span>
+                <span>{formatCurrency(subtotal)}</span>
+              </div>
+              <div className="valora-new-summary-row" style={{ marginTop: '4px' }}>
+                <span>Vat. ({(taxRate * 100).toFixed(0)}%):</span>
+                <span>{formatCurrency(taxAmount)}</span>
+              </div>
+              {discount > 0 && (
+                <div className="valora-new-summary-row discount" style={{ marginTop: '4px' }}>
+                  <span>Discount:</span>
+                  <span>-{formatCurrency(discount)}</span>
+                </div>
+              )}
+              
+              <div className="valora-new-total-row-blue">
+                <span>TOTAL:</span>
+                <span>{formatCurrency(total)}</span>
+              </div>
+            </div>
+
+            <div className="valora-new-signature-box">
+              <div className="valora-new-signature-line"></div>
+              <div className="valora-new-signature-label">Customer Signature</div>
+            </div>
           </div>
         </div>
       </div>

@@ -505,7 +505,7 @@ app.get('/api/invoices', async (req, res) => {
   }
 });
 
-// 9. Create New Invoice
+// 9. Create / Update Invoice
 app.post('/api/invoices', async (req, res) => {
   try {
     const { sheets, sheetId } = await getSheetsClient(req);
@@ -521,7 +521,7 @@ app.post('/api/invoices', async (req, res) => {
       invoiceData.InvoiceID = `INV-${new Date().getFullYear()}-${String(count).padStart(4, '0')}`;
     }
 
-    // 2. Add Invoice Metadata
+    // 2. Add or Update Invoice Metadata
     const rawInvoices = await getSheetValues(sheets, sheetId, 'Invoices!A:M');
     const invoiceHeaders = rawInvoices[0] || [
       'InvoiceID', 'IssueDate', 'DueDate', 'PaymentTerms', 'CustomerID', 
@@ -541,18 +541,33 @@ app.post('/api/invoices', async (req, res) => {
     }
 
     invoiceData.Status = invoiceData.Status || 'Sent';
-    invoiceData.CreatedBy = req.user ? req.user.username : 'admin';
-    await appendRow(sheets, sheetId, 'Invoices', invoiceHeaders, invoiceData);
 
+    const invoiceList = rowsToObjects(rawInvoices);
+    const exists = invoiceList.some(inv => inv.InvoiceID === invoiceData.InvoiceID);
 
-    // 3. Add Invoice Line Items
+    if (exists) {
+      const originalInv = invoiceList.find(inv => inv.InvoiceID === invoiceData.InvoiceID);
+      invoiceData.CreatedBy = originalInv?.CreatedBy || 'admin';
+      await updateRow(sheets, sheetId, 'Invoices', 'InvoiceID', invoiceData.InvoiceID, invoiceHeaders, invoiceData);
+    } else {
+      invoiceData.CreatedBy = req.user ? req.user.username : 'admin';
+      await appendRow(sheets, sheetId, 'Invoices', invoiceHeaders, invoiceData);
+    }
+
+    // 3. Add or Overwrite Invoice Line Items
     const rawItems = await getSheetValues(sheets, sheetId, 'InvoiceItems!A:G');
     const itemHeaders = rawItems[0] || ['ItemID', 'InvoiceID', 'Description', 'QTY', 'Unit', 'Cost', 'Amount'];
+    
+    let otherItems = [];
+    if (rawItems.length > 0) {
+      const itemsList = rowsToObjects(rawItems);
+      otherItems = itemsList.filter(item => item.InvoiceID !== invoiceData.InvoiceID);
+    }
 
-    for (const item of items) {
-      const ItemID = 'ITEM-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+    const newItemsToAppend = items.map(item => {
+      const ItemID = item.ItemID || 'ITEM-' + Math.random().toString(36).substr(2, 9).toUpperCase();
       const amount = Number(item.QTY) * Number(item.Cost);
-      await appendRow(sheets, sheetId, 'InvoiceItems', itemHeaders, {
+      return {
         ItemID,
         InvoiceID: invoiceData.InvoiceID,
         Description: item.Description,
@@ -560,6 +575,30 @@ app.post('/api/invoices', async (req, res) => {
         Unit: item.Unit || 'page',
         Cost: item.Cost,
         Amount: amount
+      };
+    });
+
+    if (rawItems.length > 1) {
+      await sheets.spreadsheets.values.clear({
+        spreadsheetId: sheetId,
+        range: 'InvoiceItems!A2:G'
+      });
+    }
+
+    const allItemsToSave = otherItems.concat(newItemsToAppend);
+    const rowsToPack = allItemsToSave.map(item => 
+      itemHeaders.map(h => item[h] !== undefined ? item[h] : '')
+    );
+
+    if (rowsToPack.length > 0) {
+      const endLetter = String.fromCharCode(64 + itemHeaders.length);
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: sheetId,
+        range: `InvoiceItems!A2:${endLetter}${rowsToPack.length + 1}`,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: {
+          values: rowsToPack
+        }
       });
     }
 

@@ -1538,4 +1538,351 @@ select.input-control {
   color: var(--status-draft-text);
 }
 
+/* Redesigned A4 Invoice Layout matching VALORA invoice_074839.jpg.jpeg */
+.valora-new-header-grid {
+  display: grid;
+  grid-template-columns: 40% 60%;
+  align-items: start;
+  gap: 24px;
+}
+
+.valora-new-blue-card {
+  background: linear-gradient(135deg, #031B49 0%, #021233 100%) !important;
+  color: white !important;
+  padding: 24px !important;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: var(--shadow-sm);
+  -webkit-print-color-adjust: exact !important;
+  print-color-adjust: exact !important;
+}
+
+.valora-new-blue-card-item {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.valora-new-icon {
+  font-size: 0.85rem;
+  opacity: 0.95;
+}
+
+.valora-new-address {
+  white-space: pre-line;
+}
+
+.valora-new-header-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: flex-start;
+  text-align: right;
+  width: 100%;
+}
+
+.valora-new-logo-img {
+  max-height: 52px;
+  max-width: 160px;
+  object-fit: contain;
+  margin-bottom: 6px;
+}
+
+.valora-new-invoice-word {
+  font-size: 3rem;
+  font-weight: 800;
+  font-family: var(--font-display);
+  color: var(--text-dark);
+  letter-spacing: 2px;
+  margin: 6px 0 0 0;
+  line-height: 1;
+}
+
+.valora-new-double-lines {
+  width: 100%;
+  border-top: 1.5px solid var(--text-dark);
+  border-bottom: 1.5px solid var(--text-dark);
+  height: 4px;
+  margin: 8px 0 12px 0;
+}
+
+.valora-new-meta-row {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.valora-new-meta-val {
+  font-weight: 700;
+  color: var(--text-dark);
+}
+
+.valora-new-bill-to-container {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-start;
+}
+
+.valora-new-bill-to-box {
+  background-color: white;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 16px;
+  width: 100%;
+  max-width: 320px;
+  box-shadow: var(--shadow-sm);
+}
+
+.valora-new-bill-to-title {
+  font-weight: 700;
+  color: var(--primary);
+  font-size: 0.8rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+  margin-bottom: 8px;
+  letter-spacing: 0.5px;
+}
+
+.valora-new-bill-to-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 0.78rem;
+}
+
+.valora-new-bill-label {
+  color: var(--text-muted);
+  font-weight: 500;
+  width: 60px;
+}
+
+.valora-new-bill-value {
+  color: var(--text-dark);
+  font-weight: 600;
+}
+
+.valora-new-bill-address {
+  white-space: pre-line;
+}
+
+.valora-new-table-container {
+  margin-top: 24px;
+  border: 1.5px solid var(--text-dark);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.valora-new-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.valora-new-table th {
+  background-color: black !important;
+  color: white !important;
+  padding: 10px 8px;
+  font-weight: 700;
+  border-right: 1.5px solid white;
+  border-bottom: 1.5px solid var(--text-dark);
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.5px;
+  -webkit-print-color-adjust: exact !important;
+  print-color-adjust: exact !important;
+}
+
+.valora-new-table td {
+  padding: 8px 8px;
+  border-right: 1.5px solid var(--text-dark);
+  border-bottom: 1.5px solid var(--text-dark);
+  color: var(--text-dark);
+  font-weight: 500;
+}
+
+.valora-new-table th:last-child, .valora-new-table td:last-child {
+  border-right: none;
+}
+
+.valora-new-empty-row td {
+  height: 28px;
+  background-color: white !important;
+  border-bottom: 1.5px solid var(--text-dark);
+}
+
+.valora-new-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.valora-new-table tbody tr:nth-child(even):not(.valora-new-empty-row) {
+  background-color: #f1f5f9 !important;
+  -webkit-print-color-adjust: exact !important;
+  print-color-adjust: exact !important;
+}
+
+.valora-new-bottom-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-top: 24px;
+  align-items: start;
+}
+
+.valora-new-payment-box {
+  background-color: #f8fafc;
+  border: 1px dashed var(--border-focus);
+  border-radius: 6px;
+  padding: 12px 14px;
+  font-size: 0.75rem;
+}
+
+.valora-new-payment-title {
+  font-weight: 700;
+  color: var(--text-dark);
+  margin-bottom: 6px;
+}
+
+.valora-new-payment-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.valora-new-payment-row:last-child {
+  margin-bottom: 0;
+}
+
+.valora-new-payment-label {
+  color: var(--text-muted);
+}
+
+.valora-new-payment-value {
+  font-weight: 600;
+  color: var(--text-dark);
+}
+
+.valora-new-terms-box {
+  margin-top: 14px;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.valora-new-terms-title {
+  font-weight: 700;
+  color: var(--primary);
+  margin-bottom: 4px;
+  letter-spacing: 0.5px;
+}
+
+.valora-new-terms-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.valora-new-summary-box {
+  background-color: white;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.8rem;
+}
+
+.valora-new-summary-row {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 500;
+  color: var(--text-main);
+}
+
+.valora-new-summary-row.discount {
+  color: #b91c1c;
+}
+
+.valora-new-total-row-blue {
+  background-color: var(--primary) !important;
+  color: white !important;
+  font-weight: 700;
+  font-size: 1.05rem;
+  border-radius: 4px;
+  padding: 8px 12px;
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  -webkit-print-color-adjust: exact !important;
+  print-color-adjust: exact !important;
+}
+
+.valora-new-signature-box {
+  margin-top: 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  width: 100%;
+}
+
+.valora-new-signature-line {
+  border-bottom: 1.5px dotted var(--border-focus);
+  width: 220px;
+  margin-bottom: 6px;
+}
+
+.valora-new-signature-label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  width: 220px;
+  text-align: center;
+  letter-spacing: 0.5px;
+}
+
+/* Print Only Display Utilities */
+.print-only-container {
+  display: none;
+}
+
+@media print {
+  /* Hide all screen workspace elements */
+  #root > *:not(.print-only-container) {
+    display: none !important;
+  }
+  
+  .print-only-container {
+    display: block !important;
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-sizing: border-box !important;
+    background-color: white !important;
+  }
+
+  .print-paper {
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    max-height: 100% !important;
+    aspect-ratio: auto !important;
+    background-color: white !important;
+    box-sizing: border-box !important;
+  }
+}
+
+
 
