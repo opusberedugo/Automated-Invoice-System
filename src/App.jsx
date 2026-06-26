@@ -204,8 +204,6 @@ export default function App() {
         <div className="login-card">
           <div className="login-logo-container">
             <img src="/logo.svg" alt="Valora Logo" className="login-logo" />
-            <div className="login-brand-name">VALORA</div>
-            <div className="login-brand-tagline">INTEGRATION SOLUTIONS LIMITED</div>
           </div>
           
           <h2 className="login-title">Billing Portal</h2>

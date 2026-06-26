@@ -1853,6 +1853,17 @@ select.input-control {
 }
 
 @media print {
+  @page {
+    size: A4 portrait;
+    margin: 15mm;
+  }
+
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+    background-color: white !important;
+  }
+
   /* Hide all screen workspace elements */
   #root > *:not(.print-only-container) {
     display: none !important;
@@ -1860,9 +1871,7 @@ select.input-control {
   
   .print-only-container {
     display: block !important;
-    position: absolute !important;
-    left: 0 !important;
-    top: 0 !important;
+    position: relative !important;
     width: 100% !important;
     margin: 0 !important;
     padding: 0 !important;
