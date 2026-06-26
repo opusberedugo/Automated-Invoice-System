@@ -1,455 +1,283 @@
-const express = require('express');
-const serverless = require('serverless-http');
-const cors = require('cors');
-const { google } = require('googleapis');
-const nodemailer = require('nodemailer');
+/**
+ * Netlify Function — api.js
+ * Zero external dependencies: uses only Node.js built-ins (crypto, fetch).
+ */
+import { createSign } from 'node:crypto';
 
-const app = express();
-app.use(cors());
-app.use(express.json());
+// ─── Response helpers ─────────────────────────────────────────────────────────
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PATCH, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, x-sheet-id, x-google-email, x-google-key',
+  'Content-Type': 'application/json'
+};
+const ok  = (body)     => ({ statusCode: 200, headers: CORS, body: JSON.stringify(body) });
+const err = (code, msg)=> ({ statusCode: code,headers: CORS, body: JSON.stringify({ error: msg }) });
 
-// Path rewriter for Netlify Serverless environment
-app.use((req, res, next) => {
-  if (req.url.startsWith('/.netlify/functions/api')) {
-    req.url = req.url.replace('/.netlify/functions/api', '/api');
-  }
-  next();
-});
-
-// Helper to get Google Sheets Client
-async function getSheetsClient(req) {
-  let email = req.headers['x-google-email'] || req.query.googleEmail;
-  let privateKey = req.headers['x-google-key'] || req.query.googleKey;
-  let sheetId = req.headers['x-sheet-id'] || req.query.sheetId;
-
-  // Base64 decode private key if formatted that way to prevent headers newline issues
-  if (privateKey && !privateKey.includes('-----BEGIN PRIVATE KEY-----')) {
-    try {
-      privateKey = Buffer.from(privateKey, 'base64').toString('utf-8');
-    } catch (e) {
-      // Allow fallback
-    }
-  }
-
-  // Fallback to Env variables
-  if (!email) email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-  if (!privateKey) privateKey = process.env.GOOGLE_PRIVATE_KEY;
-  if (!sheetId) sheetId = process.env.GOOGLE_SHEET_ID;
-
-  if (!email || !privateKey || !sheetId) {
-    throw new Error('MISSING_CONFIG');
-  }
-
-  const formattedKey = privateKey
-    .replace(/\r/g, '')
-    .replace(/\\n/g, '\n')
-    .trim();
-
-  const auth = new google.auth.JWT({
-    email,
-    key: formattedKey,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets']
-  });
-
-  const sheets = google.sheets({ version: 'v4', auth });
-  return { sheets, sheetId };
+// ─── Google JWT + OAuth ───────────────────────────────────────────────────────
+function b64url(input) {
+  const buf = typeof input === 'string' ? Buffer.from(input) : input;
+  return buf.toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
 }
 
-// Convert sheet rows (2D array) to Array of Objects using headers row
+function makeJWT(clientEmail, privateKey) {
+  const header  = b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
+  const now     = Math.floor(Date.now() / 1000);
+  const payload = b64url(JSON.stringify({
+    iss:   clientEmail,
+    scope: 'https://www.googleapis.com/auth/spreadsheets',
+    aud:   'https://oauth2.googleapis.com/token',
+    exp:   now + 3600,
+    iat:   now
+  }));
+  const sign = createSign('RSA-SHA256');
+  sign.update(`${header}.${payload}`);
+  const sig = sign.sign(privateKey, 'base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  return `${header}.${payload}.${sig}`;
+}
+
+async function getAccessToken(clientEmail, privateKey) {
+  const jwt  = makeJWT(clientEmail, privateKey);
+  const body = new URLSearchParams({
+    grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+    assertion:  jwt
+  });
+  const res  = await fetch('https://oauth2.googleapis.com/token', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body:    body.toString()
+  });
+  const data = await res.json();
+  if (!data.access_token) throw new Error(`Google auth failed: ${data.error_description || data.error || JSON.stringify(data)}`);
+  return data.access_token;
+}
+
+// ─── Sheets REST wrappers ─────────────────────────────────────────────────────
+async function sheetsGet(token, sheetId, range) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}`;
+  const res  = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message);
+  return data.values || [];
+}
+
+async function sheetsAppend(token, sheetId, range, rows) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED`;
+  const res  = await fetch(url, {
+    method:  'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ values: rows })
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message);
+}
+
+async function sheetsPut(token, sheetId, range, rows) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`;
+  const res  = await fetch(url, {
+    method:  'PUT',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ values: rows })
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message);
+}
+
+// ─── Data helpers ─────────────────────────────────────────────────────────────
 function rowsToObjects(rows) {
-  if (!rows || rows.length === 0) return [];
-  const headers = rows[0];
-  return rows.slice(1).map(row => {
-    const obj = {};
-    headers.forEach((header, index) => {
-      obj[header] = row[index] !== undefined ? row[index] : '';
-    });
-    return obj;
-  });
+  if (!rows || rows.length < 2) return [];
+  const hdrs = rows[0];
+  return rows.slice(1).map(row => Object.fromEntries(hdrs.map((h, i) => [h, row[i] ?? ''])));
 }
 
-// Read raw values from spreadsheet range
-async function getSheetValues(sheets, sheetId, range) {
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId: sheetId,
-    range,
-  });
-  return response.data.values || [];
+async function appendRow(token, sheetId, tab, headers, data) {
+  await sheetsAppend(token, sheetId, `${tab}!A:A`, [headers.map(h => data[h] ?? '')]);
 }
 
-// Append rows
-async function appendRow(sheets, sheetId, tabName, headers, dataObject) {
-  const rowArray = headers.map(header => dataObject[header] !== undefined ? dataObject[header] : '');
-  await sheets.spreadsheets.values.append({
-    spreadsheetId: sheetId,
-    range: `${tabName}!A:A`,
-    valueInputOption: 'USER_ENTERED',
-    requestBody: {
-      values: [rowArray]
-    }
-  });
+async function updateRow(token, sheetId, tab, keyCol, keyVal, updates) {
+  const rows = await sheetsGet(token, sheetId, `${tab}!A:Z`);
+  if (!rows.length) throw new Error(`Tab ${tab} is empty.`);
+  const hdrs = rows[0];
+  const ki   = hdrs.indexOf(keyCol);
+  if (ki === -1) throw new Error(`Column "${keyCol}" not found in ${tab}.`);
+  const mi   = rows.findIndex((r, i) => i > 0 && r[ki] === keyVal);
+  if (mi === -1) throw new Error(`${keyCol}=${keyVal} not found in ${tab}.`);
+  const curr    = rows[mi];
+  const updated = hdrs.map((h, i) => updates[h] !== undefined ? updates[h] : (curr[i] ?? ''));
+  const endCol  = String.fromCharCode(64 + hdrs.length);
+  await sheetsPut(token, sheetId, `${tab}!A${mi + 1}:${endCol}${mi + 1}`, [updated]);
 }
 
-// Update specific row by key/value matching
-async function updateRow(sheets, sheetId, tabName, keyColumnName, keyValue, headers, updatedFields) {
-  const rangeName = `${tabName}!A:Z`;
-  const rows = await getSheetValues(sheets, sheetId, rangeName);
-  if (rows.length === 0) throw new Error(`Tab ${tabName} is empty.`);
+// ─── Credential extraction ────────────────────────────────────────────────────
+function getCreds(event) {
+  let email  = event.headers['x-google-email'];
+  let key    = event.headers['x-google-key'];
+  let sheet  = event.headers['x-sheet-id'];
 
-  const headersRow = rows[0];
-  const keyColIndex = headersRow.indexOf(keyColumnName);
-  if (keyColIndex === -1) throw new Error(`Key column ${keyColumnName} not found in ${tabName}.`);
+  // Decode base64-encoded private key (client encodes it to handle newlines in headers)
+  if (key && !key.includes('-----BEGIN')) {
+    try { key = Buffer.from(key, 'base64').toString('utf-8'); } catch (_) {}
+  }
+  if (!email || !key || !sheet) throw new Error('MISSING_CONFIG');
 
-  let matchIndex = -1;
-  for (let i = 1; i < rows.length; i++) {
-    if (rows[i][keyColIndex] === keyValue) {
-      matchIndex = i;
-      break;
-    }
+  // Normalize PEM newlines
+  key = key.replace(/\r/g, '').replace(/\\n/g, '\n').trim();
+  return { email, key, sheet };
+}
+
+// ─── Main handler ─────────────────────────────────────────────────────────────
+export const handler = async (event) => {
+  // CORS preflight
+  if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers: CORS, body: '' };
+
+  const method = event.httpMethod;
+
+  // Normalise path — Netlify may pass the original URL or the function URL
+  let path = (event.path || '').replace(/\/$/, '');
+  if (path.includes('/.netlify/functions/api')) {
+    path = path.replace('/.netlify/functions/api', '/api');
+  } else if (!path.startsWith('/api')) {
+    path = '/api' + path;
   }
 
-  if (matchIndex === -1) throw new Error(`Row with ${keyColumnName}=${keyValue} not found in ${tabName}.`);
-
-  const currentRow = rows[matchIndex];
-  const updatedRowArray = headersRow.map((header, idx) => {
-    if (updatedFields[header] !== undefined) {
-      return updatedFields[header];
-    }
-    return currentRow[idx] !== undefined ? currentRow[idx] : '';
-  });
-
-  const rowNumber = matchIndex + 1;
-  const endLetter = String.fromCharCode(65 + headersRow.length - 1);
-  const writeRange = `${tabName}!A${rowNumber}:${endLetter}${rowNumber}`;
-
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: sheetId,
-    range: writeRange,
-    valueInputOption: 'USER_ENTERED',
-    requestBody: {
-      values: [updatedRowArray]
-    }
-  });
-}
-
-// --- API Endpoints ---
-
-// 1. Connection check & config verification
-app.get('/api/check-connection', async (req, res) => {
-  try {
-    const { sheets, sheetId } = await getSheetsClient(req);
-    // Try to fetch settings tab metadata to check read permissions
-    const rawSettings = await getSheetValues(sheets, sheetId, 'Settings!A:C');
-    const settingsList = rowsToObjects(rawSettings);
-
-    const configMap = {};
-    settingsList.forEach(s => {
-      configMap[s.Key] = s.Value;
-    });
-
-    res.json({
-      connected: true,
-      sheetId,
-      companyName: configMap['company_name'] || 'Invoice System DB',
-      settings: configMap
-    });
-  } catch (error) {
-    console.error('Connection check failed:', error);
-    if (error.message === 'MISSING_CONFIG') {
-      return res.status(400).json({ connected: false, error: 'Configuration credentials missing. Set ENV or pass headers.' });
-    }
-    res.status(500).json({ connected: false, error: error.message || 'Failed to authenticate with Google Sheets.' });
+  // ── Health check (no auth) ─────────────────────────────────────────────────
+  if (method === 'GET' && path === '/api/ping') {
+    return ok({ ok: true, message: 'Netlify function is running ✓', rawPath: event.path, normalizedPath: path });
   }
-});
 
-// 2. Fetch all Settings
-app.get('/api/settings', async (req, res) => {
   try {
-    const { sheets, sheetId } = await getSheetsClient(req);
-    const raw = await getSheetValues(sheets, sheetId, 'Settings!A:C');
-    const settingsList = rowsToObjects(raw);
-    const settingsMap = {};
-    settingsList.forEach(item => {
-      settingsMap[item.Key] = item.Value;
-    });
-    res.json(settingsMap);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
 
-// 3. Save Settings (bulk update settings tab)
-app.post('/api/settings', async (req, res) => {
-  try {
-    const { sheets, sheetId } = await getSheetsClient(req);
-    const updatedSettings = req.body; // e.g. { company_name: "Arsa", bank_name: "BCA" }
-
-    const raw = await getSheetValues(sheets, sheetId, 'Settings!A:C');
-    const headers = raw[0] || ['Key', 'Value', 'Category'];
-
-    for (const [key, value] of Object.entries(updatedSettings)) {
+    // ── GET /api/check-connection ────────────────────────────────────────────
+    if (method === 'GET' && path === '/api/check-connection') {
       try {
-        await updateRow(sheets, sheetId, 'Settings', 'Key', key, headers, { Value: String(value) });
+        const { email, key, sheet } = getCreds(event);
+        const token  = await getAccessToken(email, key);
+        const raw    = await sheetsGet(token, sheet, 'Settings!A:C');
+        const list   = rowsToObjects(raw);
+        const cfg    = Object.fromEntries(list.map(s => [s.Key, s.Value]));
+        return ok({ connected: true, sheetId: sheet, companyName: cfg['company_name'] || 'Invoice System', settings: cfg });
       } catch (e) {
-        // If row doesn't exist, append it
-        await appendRow(sheets, sheetId, 'Settings', headers, { Key: key, Value: String(value), Category: 'General' });
+        if (e.message === 'MISSING_CONFIG') return err(400, 'Missing credentials in request headers.');
+        return err(500, e.message);
       }
     }
-    res.json({ success: true });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
 
-// 4. Fetch Customers
-app.get('/api/customers', async (req, res) => {
-  try {
-    const { sheets, sheetId } = await getSheetsClient(req);
-    const raw = await getSheetValues(sheets, sheetId, 'Customers!A:F');
-    res.json(rowsToObjects(raw));
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+    // ── All other endpoints need credentials ─────────────────────────────────
+    const { email, key, sheet } = getCreds(event);
+    const token = await getAccessToken(email, key);
 
-// 5. Create / Update Customer
-app.post('/api/customers', async (req, res) => {
-  try {
-    const { sheets, sheetId } = await getSheetsClient(req);
-    const customer = req.body;
-    const raw = await getSheetValues(sheets, sheetId, 'Customers!A:F');
-    const headers = raw[0] || ['CustomerID', 'Name', 'Email', 'Phone', 'Address', 'Website'];
-
-    if (!customer.CustomerID) {
-      customer.CustomerID = 'CUST-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+    // ── GET /api/settings ────────────────────────────────────────────────────
+    if (method === 'GET' && path === '/api/settings') {
+      const raw  = await sheetsGet(token, sheet, 'Settings!A:C');
+      const list = rowsToObjects(raw);
+      return ok(Object.fromEntries(list.map(s => [s.Key, s.Value])));
     }
 
-    // Check if customer exists
-    const customerList = rowsToObjects(raw);
-    const exists = customerList.some(c => c.CustomerID === customer.CustomerID);
-
-    if (exists) {
-      await updateRow(sheets, sheetId, 'Customers', 'CustomerID', customer.CustomerID, headers, customer);
-    } else {
-      await appendRow(sheets, sheetId, 'Customers', headers, customer);
+    // ── POST /api/settings ───────────────────────────────────────────────────
+    if (method === 'POST' && path === '/api/settings') {
+      const body    = JSON.parse(event.body || '{}');
+      const raw     = await sheetsGet(token, sheet, 'Settings!A:C');
+      const headers = raw[0] || ['Key', 'Value', 'Category'];
+      for (const [k, v] of Object.entries(body)) {
+        try { await updateRow(token, sheet, 'Settings', 'Key', k, { Value: String(v) }); }
+        catch (_) { await appendRow(token, sheet, 'Settings', headers, { Key: k, Value: String(v), Category: 'General' }); }
+      }
+      return ok({ success: true });
     }
 
-    res.json({ success: true, customer });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// 6. Fetch Services
-app.get('/api/services', async (req, res) => {
-  try {
-    const { sheets, sheetId } = await getSheetsClient(req);
-    const raw = await getSheetValues(sheets, sheetId, 'Services!A:D');
-    res.json(rowsToObjects(raw));
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// 7. Create / Update Service
-app.post('/api/services', async (req, res) => {
-  try {
-    const { sheets, sheetId } = await getSheetsClient(req);
-    const service = req.body;
-    const raw = await getSheetValues(sheets, sheetId, 'Services!A:D');
-    const headers = raw[0] || ['ServiceID', 'Description', 'Unit', 'DefaultCost'];
-
-    if (!service.ServiceID) {
-      service.ServiceID = 'SRV-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+    // ── GET /api/customers ───────────────────────────────────────────────────
+    if (method === 'GET' && path === '/api/customers') {
+      return ok(rowsToObjects(await sheetsGet(token, sheet, 'Customers!A:F')));
     }
 
-    const servicesList = rowsToObjects(raw);
-    const exists = servicesList.some(s => s.ServiceID === service.ServiceID);
-
-    if (exists) {
-      await updateRow(sheets, sheetId, 'Services', 'ServiceID', service.ServiceID, headers, service);
-    } else {
-      await appendRow(sheets, sheetId, 'Services', headers, service);
+    // ── POST /api/customers ──────────────────────────────────────────────────
+    if (method === 'POST' && path === '/api/customers') {
+      const c       = JSON.parse(event.body || '{}');
+      const raw     = await sheetsGet(token, sheet, 'Customers!A:F');
+      const headers = raw[0] || ['CustomerID', 'Name', 'Email', 'Phone', 'Address', 'Website'];
+      if (!c.CustomerID) c.CustomerID = 'CUST-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+      if (rowsToObjects(raw).some(x => x.CustomerID === c.CustomerID)) await updateRow(token, sheet, 'Customers', 'CustomerID', c.CustomerID, c);
+      else await appendRow(token, sheet, 'Customers', headers, c);
+      return ok({ success: true, customer: c });
     }
 
-    res.json({ success: true, service });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// 8. Fetch Invoices with Items embedded
-app.get('/api/invoices', async (req, res) => {
-  try {
-    const { sheets, sheetId } = await getSheetsClient(req);
-    
-    // Read raw invoices & raw invoice items
-    const rawInvoices = await getSheetValues(sheets, sheetId, 'Invoices!A:M');
-    const invoices = rowsToObjects(rawInvoices);
-
-    const rawItems = await getSheetValues(sheets, sheetId, 'InvoiceItems!A:G');
-    const items = rowsToObjects(rawItems);
-
-    const rawCustomers = await getSheetValues(sheets, sheetId, 'Customers!A:F');
-    const customers = rowsToObjects(rawCustomers);
-    const customerMap = {};
-    customers.forEach(c => {
-      customerMap[c.CustomerID] = c;
-    });
-
-    // Nest items inside invoices
-    const enrichedInvoices = invoices.map(invoice => {
-      const invoiceItems = items.filter(item => item.InvoiceID === invoice.InvoiceID);
-      const customer = customerMap[invoice.CustomerID] || { Name: invoice.CustomerID };
-      return {
-        ...invoice,
-        Customer: customer,
-        Items: invoiceItems
-      };
-    });
-
-    // Return newest first by default
-    res.json(enrichedInvoices.reverse());
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// 9. Create New Invoice
-app.post('/api/invoices', async (req, res) => {
-  try {
-    const { sheets, sheetId } = await getSheetsClient(req);
-    const { invoiceData, items } = req.body; 
-    // invoiceData: { IssueDate, DueDate, PaymentTerms, CustomerID, Subtotal, Discount, TaxRate, TaxAmount, Total, Status, Notes, PDFUrl }
-    // items: [ { Description, QTY, Unit, Cost, Amount } ]
-
-    // 1. Generate InvoiceID if not provided
-    if (!invoiceData.InvoiceID) {
-      const rawInvoices = await getSheetValues(sheets, sheetId, 'Invoices!A:M');
-      const invoiceList = rowsToObjects(rawInvoices);
-      const count = invoiceList.length + 1;
-      invoiceData.InvoiceID = `INV-${new Date().getFullYear()}-${String(count).padStart(4, '0')}`;
+    // ── GET /api/services ────────────────────────────────────────────────────
+    if (method === 'GET' && path === '/api/services') {
+      return ok(rowsToObjects(await sheetsGet(token, sheet, 'Services!A:D')));
     }
 
-    // 2. Add Invoice Metadata
-    const rawInvoices = await getSheetValues(sheets, sheetId, 'Invoices!A:M');
-    const invoiceHeaders = rawInvoices[0] || [
-      'InvoiceID', 'IssueDate', 'DueDate', 'PaymentTerms', 'CustomerID', 
-      'Subtotal', 'Discount', 'TaxRate', 'TaxAmount', 'Total', 'Status', 'Notes', 'PDFUrl'
-    ];
-    invoiceData.Status = invoiceData.Status || 'Sent';
-    await appendRow(sheets, sheetId, 'Invoices', invoiceHeaders, invoiceData);
-
-    // 3. Add Invoice Line Items
-    const rawItems = await getSheetValues(sheets, sheetId, 'InvoiceItems!A:G');
-    const itemHeaders = rawItems[0] || ['ItemID', 'InvoiceID', 'Description', 'QTY', 'Unit', 'Cost', 'Amount'];
-
-    for (const item of items) {
-      const ItemID = 'ITEM-' + Math.random().toString(36).substr(2, 9).toUpperCase();
-      const amount = Number(item.QTY) * Number(item.Cost);
-      await appendRow(sheets, sheetId, 'InvoiceItems', itemHeaders, {
-        ItemID,
-        InvoiceID: invoiceData.InvoiceID,
-        Description: item.Description,
-        QTY: item.QTY,
-        Unit: item.Unit || 'page',
-        Cost: item.Cost,
-        Amount: amount
-      });
+    // ── POST /api/services ───────────────────────────────────────────────────
+    if (method === 'POST' && path === '/api/services') {
+      const s       = JSON.parse(event.body || '{}');
+      const raw     = await sheetsGet(token, sheet, 'Services!A:D');
+      const headers = raw[0] || ['ServiceID', 'Description', 'Unit', 'DefaultCost'];
+      if (!s.ServiceID) s.ServiceID = 'SRV-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+      if (rowsToObjects(raw).some(x => x.ServiceID === s.ServiceID)) await updateRow(token, sheet, 'Services', 'ServiceID', s.ServiceID, s);
+      else await appendRow(token, sheet, 'Services', headers, s);
+      return ok({ success: true, service: s });
     }
 
-    res.json({ success: true, InvoiceID: invoiceData.InvoiceID });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// 10. Update Invoice Status
-app.patch('/api/invoices/:id/status', async (req, res) => {
-  try {
-    const { sheets, sheetId } = await getSheetsClient(req);
-    const invoiceId = req.params.id;
-    const { status } = req.body; // 'Draft' | 'Sent' | 'Paid' | 'Overdue'
-
-    const raw = await getSheetValues(sheets, sheetId, 'Invoices!A:M');
-    const headers = raw[0];
-
-    await updateRow(sheets, sheetId, 'Invoices', 'InvoiceID', invoiceId, headers, { Status: status });
-    res.json({ success: true });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// 11. Send Invoice Email
-app.post('/api/invoices/send-email', async (req, res) => {
-  try {
-    const { invoice, pdfDataUri, emailConfig } = req.body;
-    // invoice: { InvoiceID, Customer: { Name, Email }, Total, IssueDate, DueDate, Items: [...] }
-    // pdfDataUri: base64 data URI of the generated invoice PDF (generated on client side)
-    // emailConfig: SMTP options or Resend configuration passed from settings
-
-    // We configure transport based on emailConfig or fall back to system env
-    const host = emailConfig?.host || process.env.SMTP_HOST;
-    const port = emailConfig?.port || process.env.SMTP_PORT || 587;
-    const user = emailConfig?.user || process.env.SMTP_USER;
-    const pass = emailConfig?.pass || process.env.SMTP_PASS;
-
-    if (!user || !pass) {
-      return res.status(400).json({ error: 'Mail server credentials are not configured.' });
+    // ── GET /api/invoices ────────────────────────────────────────────────────
+    if (method === 'GET' && path === '/api/invoices') {
+      const [invRows, itmRows, custRows] = await Promise.all([
+        sheetsGet(token, sheet, 'Invoices!A:M'),
+        sheetsGet(token, sheet, 'InvoiceItems!A:G'),
+        sheetsGet(token, sheet, 'Customers!A:F')
+      ]);
+      const invoices  = rowsToObjects(invRows);
+      const items     = rowsToObjects(itmRows);
+      const custMap   = Object.fromEntries(rowsToObjects(custRows).map(c => [c.CustomerID, c]));
+      return ok(invoices.map(inv => ({
+        ...inv,
+        Customer: custMap[inv.CustomerID] || { Name: inv.CustomerID },
+        Items:    items.filter(it => it.InvoiceID === inv.InvoiceID)
+      })).reverse());
     }
 
-    const transporter = nodemailer.createTransport({
-      host,
-      port: Number(port),
-      secure: Number(port) === 465,
-      auth: { user, pass }
-    });
+    // ── POST /api/invoices ───────────────────────────────────────────────────
+    if (method === 'POST' && path === '/api/invoices') {
+      const { invoiceData, items } = JSON.parse(event.body || '{}');
+      const rawInv  = await sheetsGet(token, sheet, 'Invoices!A:M');
+      if (!invoiceData.InvoiceID) {
+        invoiceData.InvoiceID = `INV-${new Date().getFullYear()}-${String(rowsToObjects(rawInv).length + 1).padStart(4, '0')}`;
+      }
+      const invHdrs = rawInv[0] || ['InvoiceID','IssueDate','DueDate','PaymentTerms','CustomerID','Subtotal','Discount','TaxRate','TaxAmount','Total','Status','Notes','PDFUrl'];
+      invoiceData.Status = invoiceData.Status || 'Sent';
+      await appendRow(token, sheet, 'Invoices', invHdrs, invoiceData);
+      const rawItm  = await sheetsGet(token, sheet, 'InvoiceItems!A:G');
+      const itmHdrs = rawItm[0] || ['ItemID','InvoiceID','Description','QTY','Unit','Cost','Amount'];
+      for (const item of items) {
+        await appendRow(token, sheet, 'InvoiceItems', itmHdrs, {
+          ItemID:      'ITEM-' + Math.random().toString(36).substr(2, 9).toUpperCase(),
+          InvoiceID:   invoiceData.InvoiceID,
+          Description: item.Description,
+          QTY:         item.QTY,
+          Unit:        item.Unit || 'page',
+          Cost:        item.Cost,
+          Amount:      Number(item.QTY) * Number(item.Cost)
+        });
+      }
+      return ok({ success: true, InvoiceID: invoiceData.InvoiceID });
+    }
 
-    const pdfBuffer = Buffer.from(pdfDataUri.split(',')[1], 'base64');
+    // ── PATCH /api/invoices/:id/status ───────────────────────────────────────
+    const sm = path.match(/^\/api\/invoices\/([^/]+)\/status$/);
+    if (method === 'PATCH' && sm) {
+      const { status } = JSON.parse(event.body || '{}');
+      await updateRow(token, sheet, 'Invoices', 'InvoiceID', sm[1], { Status: status });
+      return ok({ success: true });
+    }
 
-    const mailOptions = {
-      from: emailConfig?.from || `Billing <${user}>`,
-      to: invoice.Customer.Email,
-      subject: `Invoice ${invoice.InvoiceID} from ${emailConfig?.companyName || 'Us'}`,
-      text: `Hello ${invoice.Customer.Name},\n\nPlease find attached your invoice ${invoice.InvoiceID} for the total of ${invoice.Total}.\n\nIssue Date: ${invoice.IssueDate}\nDue Date: ${invoice.DueDate}\n\nThank you for your business!`,
-      html: `
-        <div style="font-family: sans-serif; padding: 20px; color: #333;">
-          <h2 style="color: #0f172a;">Invoice ${invoice.InvoiceID}</h2>
-          <p>Hello ${invoice.Customer.Name},</p>
-          <p>Thank you for your business. Please find your invoice attached as a PDF file.</p>
-          <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
-          <table style="width: 100%; border-collapse: collapse;">
-            <tr>
-              <td style="padding: 8px 0; font-weight: bold;">Issue Date:</td>
-              <td style="padding: 8px 0;">${invoice.IssueDate}</td>
-            </tr>
-            <tr>
-              <td style="padding: 8px 0; font-weight: bold;">Due Date:</td>
-              <td style="padding: 8px 0; color: #b91c1c;">${invoice.DueDate}</td>
-            </tr>
-            <tr>
-              <td style="padding: 8px 0; font-weight: bold;">Total Amount:</td>
-              <td style="padding: 8px 0; font-size: 1.2em; font-weight: bold; color: #0f172a;">${invoice.Total}</td>
-            </tr>
-          </table>
-          <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
-          <p style="font-size: 0.9em; color: #666;">If you have any questions, feel free to reply directly to this email.</p>
-        </div>
-      `,
-      attachments: [
-        {
-          filename: `Invoice_${invoice.InvoiceID}.pdf`,
-          content: pdfBuffer
-        }
-      ]
-    };
+    // ── POST /api/invoices/send-email (email coming soon) ──────────────────────
+    if (method === 'POST' && path === '/api/invoices/send-email') {
+      return err(501, 'Email sending is temporarily disabled. Core invoice features work.');
+    }
 
-    await transporter.sendMail(mailOptions);
-    res.json({ success: true });
-  } catch (error) {
-    console.error('Mail sending error:', error);
-    res.status(500).json({ error: error.message });
+    return err(404, `No route: ${method} ${path}`);
+
+  } catch (e) {
+    console.error('[api]', e.message, e.stack);
+    return err(500, e.message || 'Internal server error');
   }
 });
 

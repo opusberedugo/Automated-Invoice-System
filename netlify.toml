@@ -2,6 +2,9 @@
   command = "npm run build"
   publish = "dist"
 
+[build.environment]
+  NODE_VERSION = "20"
+
 [dev]
   command = "npm run dev-vite"
   port = 8888
@@ -9,11 +12,15 @@
 
 [functions]
   directory = "netlify/functions"
-  node_bundler = "esbuild"
+  node_bundler = "nft"
 
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/api/:splat"
   status = 200
 
-
+# SPA fallback — must be last
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
