@@ -1494,3 +1494,48 @@ select.input-control {
   color: var(--accent);
 }
 
+/* Search Autocomplete dropdown styles */
+.search-dropdown-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  max-height: 200px;
+  overflow-y: auto;
+  background-color: white;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow-lg);
+  margin-top: 4px;
+}
+
+.search-dropdown-item {
+  padding: 10px 14px;
+  cursor: pointer;
+  border-bottom: 1px solid #f1f5f9;
+  transition: background-color 0.2s ease;
+}
+
+.search-dropdown-item:last-child {
+  border-bottom: none;
+}
+
+.search-dropdown-item:hover {
+  background-color: var(--accent-light);
+}
+
+.search-dropdown-no-results {
+  padding: 12px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+/* User management badge style */
+.badge-staff {
+  background-color: var(--status-draft-bg);
+  color: var(--status-draft-text);
+}
+
+

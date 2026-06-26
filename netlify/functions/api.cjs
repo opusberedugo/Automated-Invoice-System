@@ -53,12 +53,12 @@ const USERS = {
   admin: {
     username: 'admin',
     password: process.env.ADMIN_PASSWORD || 'ValoraAdmin2026!',
-    role: 'admin'
+    role: 'Admin'
   },
   staff: {
     username: 'staff',
     password: process.env.STAFF_PASSWORD || 'ValoraStaff2026!',
-    role: 'staff'
+    role: 'Staff'
   }
 };
 
@@ -78,11 +78,23 @@ app.use((req, res, next) => {
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.split(' ')[1];
     if (token.startsWith('valora-token-')) {
-      const role = token.split('-')[2]; // Extract role from e.g. valora-token-admin-XYZ
-      req.user = { role };
+      const parts = token.split('-');
+      const role = parts[2]; // e.g. Admin, Staff, SuperAdmin
+      const username = parts[3]; // e.g. opuaye, admin
+      req.user = { role, username };
 
-      // Role check for modifying settings
-      if (req.path === '/api/settings' && req.method === 'POST' && role !== 'admin') {
+      const normRole = role.toLowerCase().replace(' ', '');
+      const isSuperAdmin = normRole === 'superadmin' || normRole === 'supremeadmin';
+      const isAdmin = normRole === 'admin' || isSuperAdmin;
+
+      // Authorization checks:
+      // 1. Only Super Admin can manage users
+      if (req.path.startsWith('/api/users') && !isSuperAdmin) {
+        return res.status(403).json({ error: 'Access Denied: Only Super Admin can manage users.' });
+      }
+
+      // 2. Only Admin or Super Admin can modify settings
+      if (req.path === '/api/settings' && req.method === 'POST' && !isAdmin) {
         return res.status(403).json({ error: 'Access Denied: Only Admins can modify settings.' });
       }
 
@@ -92,6 +104,7 @@ app.use((req, res, next) => {
 
   return res.status(401).json({ error: 'Unauthorized: Please log in.' });
 });
+
 
 // Helper to get Google Sheets Client
 async function getSheetsClient(req) {
@@ -119,7 +132,49 @@ async function getSheetsClient(req) {
 }
 
 
+// Helper to verify or create a sheet tab if missing
+async function ensureSheetTab(sheets, sheetId, tabName, headers) {
+  try {
+    // Check if sheet exists by getting values
+    await sheets.spreadsheets.values.get({
+      spreadsheetId: sheetId,
+      range: `${tabName}!A1:A1`
+    });
+  } catch (error) {
+    const msg = error.message || '';
+    if (msg.includes('not found') || msg.includes('Range not found') || msg.includes('400') || msg.includes('404')) {
+      console.log(`[database] Tab "${tabName}" not found. Creating it...`);
+      // Create sheet tab
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: sheetId,
+        requestBody: {
+          requests: [{
+            addSheet: {
+              properties: { title: tabName }
+            }
+          }]
+        }
+      });
+      
+      // Write headers
+      const endLetter = String.fromCharCode(64 + headers.length);
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: sheetId,
+        range: `${tabName}!A1:${endLetter}1`,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: {
+          values: [headers]
+        }
+      });
+      console.log(`[database] Tab "${tabName}" created successfully with headers.`);
+    } else {
+      throw error;
+    }
+  }
+}
+
 // Convert sheet rows (2D array) to Array of Objects using headers row
+
 function rowsToObjects(rows) {
   if (!rows || rows.length === 0) return [];
   const headers = rows[0];
@@ -197,24 +252,70 @@ async function updateRow(sheets, sheetId, tabName, keyColumnName, keyValue, head
 }
 
 // Auth Endpoint
-app.post('/api/login', (req, res) => {
+app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password are required' });
   }
 
-  const user = USERS[username.toLowerCase()];
-  if (user && user.password === password) {
-    res.json({
-      success: true,
-      username: user.username,
-      role: user.role,
-      token: `valora-token-${user.role}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`
-    });
-  } else {
-    res.status(401).json({ error: 'Invalid username or password' });
+  try {
+    const { sheets, sheetId } = await getSheetsClient(req);
+    
+    // Ensure Users tab exists and seed first admin if empty
+    const userHeaders = ['Username', 'Password', 'Name', 'Email', 'Role', 'DateCreated'];
+    await ensureSheetTab(sheets, sheetId, 'Users', userHeaders);
+
+    const rawUsers = await getSheetValues(sheets, sheetId, 'Users!A:F');
+    let userList = rowsToObjects(rawUsers);
+
+    // If database is completely empty of users, seed Opuaye Beredugo
+    if (userList.length === 0) {
+      const superUser = {
+        Username: 'opuaye',
+        Password: 'ValoraSupreme2026!',
+        Name: 'Opuaye Beredugo',
+        Email: 'opusberedugo@gmail.com',
+        Role: 'Super Admin',
+        DateCreated: new Date().toISOString().split('T')[0]
+      };
+      await appendRow(sheets, sheetId, 'Users', userHeaders, superUser);
+      userList = [superUser];
+      console.log('Seeded Supreme Admin user successfully.');
+    }
+
+    const matchedUser = userList.find(u => 
+      String(u.Username).toLowerCase().trim() === username.toLowerCase().trim() && 
+      String(u.Password) === password
+    );
+
+    if (matchedUser) {
+      return res.json({
+        success: true,
+        username: matchedUser.Username,
+        name: matchedUser.Name,
+        role: matchedUser.Role,
+        token: `valora-token-${matchedUser.Role.replace(/\s+/g, '')}-${matchedUser.Username}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`
+      });
+    }
+  } catch (error) {
+    console.error('[login sheets error, falling back to static config]:', error.message);
   }
+
+  // Fallback to static users
+  const fallbackUser = USERS[username.toLowerCase().trim()];
+  if (fallbackUser && fallbackUser.password === password) {
+    return res.json({
+      success: true,
+      username: fallbackUser.username,
+      name: fallbackUser.username === 'admin' ? 'Admin User' : 'Staff User',
+      role: fallbackUser.role === 'Admin' ? 'Admin' : 'Staff',
+      token: `valora-token-${fallbackUser.role === 'Admin' ? 'Admin' : 'Staff'}-${fallbackUser.username}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`
+    });
+  }
+
+  res.status(401).json({ error: 'Invalid username or password' });
 });
+
 
 // 1. Connection check & config verification
 app.get('/api/check-connection', async (req, res) => {
@@ -419,8 +520,23 @@ app.post('/api/invoices', async (req, res) => {
       'InvoiceID', 'IssueDate', 'DueDate', 'PaymentTerms', 'CustomerID', 
       'Subtotal', 'Discount', 'TaxRate', 'TaxAmount', 'Total', 'Status', 'Notes', 'PDFUrl'
     ];
+    
+    // Auto-migrate to add CreatedBy header if missing in sheets database
+    if (!invoiceHeaders.includes('CreatedBy')) {
+      invoiceHeaders.push('CreatedBy');
+      const endLetter = String.fromCharCode(64 + invoiceHeaders.length);
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: sheetId,
+        range: `Invoices!A1:${endLetter}1`,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [invoiceHeaders] }
+      });
+    }
+
     invoiceData.Status = invoiceData.Status || 'Sent';
+    invoiceData.CreatedBy = req.user ? req.user.username : 'admin';
     await appendRow(sheets, sheetId, 'Invoices', invoiceHeaders, invoiceData);
+
 
     // 3. Add Invoice Line Items
     const rawItems = await getSheetValues(sheets, sheetId, 'InvoiceItems!A:G');
@@ -535,6 +651,67 @@ app.post('/api/invoices/send-email', async (req, res) => {
   }
 });
 
+// 12. Fetch all Users (Super Admin only)
+app.get('/api/users', async (req, res) => {
+  try {
+    const { sheets, sheetId } = await getSheetsClient(req);
+    await ensureSheetTab(sheets, sheetId, 'Users', ['Username', 'Password', 'Name', 'Email', 'Role', 'DateCreated']);
+    const raw = await getSheetValues(sheets, sheetId, 'Users!A:F');
+    const userList = rowsToObjects(raw);
+    
+    // Hide passwords from response
+    const sanitizedUsers = userList.map(u => ({
+      Username: u.Username,
+      Name: u.Name,
+      Email: u.Email,
+      Role: u.Role,
+      DateCreated: u.DateCreated
+    }));
+    
+    res.json(sanitizedUsers);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 13. Create New User (Super Admin only)
+app.post('/api/users', async (req, res) => {
+  try {
+    const { sheets, sheetId } = await getSheetsClient(req);
+    const { Username, Password, Name, Email, Role } = req.body;
+    
+    if (!Username || !Password || !Name || !Email || !Role) {
+      return res.status(400).json({ error: 'All fields are required' });
+    }
+
+    const userHeaders = ['Username', 'Password', 'Name', 'Email', 'Role', 'DateCreated'];
+    await ensureSheetTab(sheets, sheetId, 'Users', userHeaders);
+
+    const raw = await getSheetValues(sheets, sheetId, 'Users!A:F');
+    const userList = rowsToObjects(raw);
+
+    const exists = userList.some(u => String(u.Username).toLowerCase().trim() === Username.toLowerCase().trim());
+    if (exists) {
+      return res.status(400).json({ error: 'Username already exists' });
+    }
+
+    const newUser = {
+      Username: Username.toLowerCase().trim(),
+      Password,
+      Name: Name.trim(),
+      Email: Email.trim(),
+      Role,
+      DateCreated: new Date().toISOString().split('T')[0]
+    };
+
+    await appendRow(sheets, sheetId, 'Users', userHeaders, newUser);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Export app for standalone server, and handler for serverless
+
 module.exports = app;
 module.exports.handler = serverless(app);

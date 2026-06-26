@@ -2,21 +2,14 @@ import { useState, useEffect, useMemo } from 'react';
 import { 
   FileText, 
   Users, 
-  Settings as SettingsIcon, 
   Plus, 
   Trash2, 
-  Download, 
   Send, 
   Check, 
   AlertCircle, 
-  Database, 
   RefreshCw, 
-  Briefcase, 
-  Layers, 
   Printer, 
   ArrowLeft, 
-  Mail, 
-  Info,
   LogOut
 } from 'lucide-react';
 import './App.css';
@@ -43,6 +36,10 @@ export default function App() {
     const saved = localStorage.getItem('valora_auth');
     return saved ? JSON.parse(saved) : null;
   });
+
+  const userRole = (auth?.role || '').toLowerCase();
+  const isAdmin = userRole === 'admin' || userRole === 'super admin' || userRole === 'supreme admin';
+  const isSuperAdmin = userRole === 'super admin' || userRole === 'supreme admin';
 
   const [loginData, setLoginData] = useState({
     username: '',
@@ -236,7 +233,7 @@ export default function App() {
           <img src="/logo.svg" alt="Valora Logo" className="navbar-logo" />
           <div>
             <div className="navbar-brand-title">VALORA</div>
-            <div className="navbar-brand-subtitle">Billing Portal • {auth.role === 'admin' ? 'Admin' : 'Staff'}</div>
+            <div className="navbar-brand-subtitle">Billing Portal • {auth.role}</div>
           </div>
         </div>
 
@@ -265,12 +262,20 @@ export default function App() {
           >
             Services
           </div>
-          {auth.role === 'admin' && (
+          {isAdmin && (
             <div 
               className={`nav-link ${currentTab === 'settings' ? 'active' : ''}`}
               onClick={() => setCurrentTab('settings')}
             >
               Settings
+            </div>
+          )}
+          {isSuperAdmin && (
+            <div 
+              className={`nav-link ${currentTab === 'manage-users' ? 'active' : ''}`}
+              onClick={() => setCurrentTab('manage-users')}
+            >
+              Manage Users
             </div>
           )}
         </nav>
@@ -354,6 +359,12 @@ export default function App() {
             showNotification={showNotification}
           />
         )}
+        {currentTab === 'manage-users' && isSuperAdmin && (
+          <ManageUsersView 
+            headers={getHeaders()}
+            showNotification={showNotification}
+          />
+        )}
       </main>
     </>
   );
@@ -366,6 +377,12 @@ function DashboardView({ invoices, settings, onNavigate, headers, refreshData, s
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(null);
+
+  const formatCurrency = (val) => {
+    const cur = settings.default_currency || 'NGN';
+    const locale = cur === 'NGN' ? 'en-NG' : undefined;
+    return new Intl.NumberFormat(locale, { style: 'currency', currency: cur, maximumFractionDigits: 0 }).format(val);
+  };
 
   // Compute metrics
   const metrics = useMemo(() => {
@@ -388,12 +405,6 @@ function DashboardView({ invoices, settings, onNavigate, headers, refreshData, s
         if (isOverdue) overdue += total;
       }
     });
-
-    const formatCurrency = (val) => {
-      const cur = settings.default_currency || 'NGN';
-      const locale = cur === 'NGN' ? 'en-NG' : undefined;
-      return new Intl.NumberFormat(locale, { style: 'currency', currency: cur, maximumFractionDigits: 0 }).format(val);
-    };
 
     return {
       outstanding: formatCurrency(outstanding),
@@ -518,6 +529,7 @@ function DashboardView({ invoices, settings, onNavigate, headers, refreshData, s
               <tr>
                 <th>Invoice ID</th>
                 <th>Customer</th>
+                <th>Created By</th>
                 <th>Issued</th>
                 <th>Due Date</th>
                 <th>Total</th>
@@ -533,12 +545,17 @@ function DashboardView({ invoices, settings, onNavigate, headers, refreshData, s
                     <div style={{ fontWeight: 500, color: 'var(--text-dark)' }}>{invoice.Customer?.Name || invoice.CustomerID}</div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{invoice.Customer?.Email}</div>
                   </td>
+                  <td>
+                    <span className="badge badge-staff">
+                      {invoice.CreatedBy || 'admin'}
+                    </span>
+                  </td>
                   <td>{invoice.IssueDate}</td>
                   <td style={{ color: new Date(invoice.DueDate) < new Date() && invoice.Status !== 'Paid' ? '#ef4444' : 'inherit' }}>
                     {invoice.DueDate}
                   </td>
                   <td style={{ fontWeight: 600, color: 'var(--text-dark)' }}>
-                    {new Intl.NumberFormat(undefined, { style: 'currency', currency: settings.default_currency || 'USD', maximumFractionDigits: 0 }).format(invoice.Total)}
+                    {formatCurrency(invoice.Total)}
                   </td>
                   <td>
                     <span 
@@ -593,6 +610,18 @@ function InvoiceBuilderView({ customers, services, settings, headers, refreshDat
 
   const [isSaving, setIsSaving] = useState(false);
   const [selectedCustDetails, setSelectedCustDetails] = useState(null);
+
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [showSearchDropdown, setShowSearchDropdown] = useState(false);
+
+  const filteredCustomers = useMemo(() => {
+    const term = customerSearch.toLowerCase().trim();
+    if (!term) return customers;
+    return customers.filter(c => 
+      (c.Name || '').toLowerCase().includes(term) || 
+      (c.CustomerID || '').toLowerCase().includes(term)
+    );
+  }, [customers, customerSearch]);
 
   // Sync customer details selection
   useEffect(() => {
@@ -733,18 +762,69 @@ function InvoiceBuilderView({ customers, services, settings, headers, refreshDat
           
           <div className="form-section">
             <h3 className="form-section-title">Client Details</h3>
-            <div className="form-group">
+            <div className="form-group" style={{ position: 'relative' }}>
               <label>Select Customer <span className="required">*</span></label>
-              <select 
-                className="input-control"
-                value={invoice.CustomerID}
-                onChange={e => setInvoice(prev => ({ ...prev, CustomerID: e.target.value }))}
-              >
-                <option value="">-- Choose Client --</option>
-                {customers.map(c => (
-                  <option key={c.CustomerID} value={c.CustomerID}>{c.Name}</option>
-                ))}
-              </select>
+              {invoice.CustomerID ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{
+                    flexGrow: 1,
+                    padding: '10px 14px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border)',
+                    backgroundColor: '#f8fafc',
+                    fontWeight: 600,
+                    color: 'var(--text-dark)'
+                  }}>
+                    {selectedCustDetails?.Name || invoice.CustomerID}
+                  </div>
+                  <button 
+                    type="button" 
+                    className="btn btn-secondary" 
+                    onClick={() => {
+                      setInvoice(prev => ({ ...prev, CustomerID: '' }));
+                      setCustomerSearch('');
+                    }}
+                  >
+                    Change
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <input 
+                    type="text" 
+                    className="input-control" 
+                    placeholder="Search by customer name or ID..." 
+                    value={customerSearch}
+                    onChange={e => {
+                      setCustomerSearch(e.target.value);
+                      setShowSearchDropdown(true);
+                    }}
+                    onFocus={() => setShowSearchDropdown(true)}
+                    onBlur={() => setTimeout(() => setShowSearchDropdown(false), 200)}
+                  />
+                  {showSearchDropdown && (
+                    <div className="search-dropdown-list">
+                      {filteredCustomers.length === 0 ? (
+                        <div className="search-dropdown-no-results">No clients found</div>
+                      ) : (
+                        filteredCustomers.map(c => (
+                          <div 
+                            key={c.CustomerID} 
+                            className="search-dropdown-item" 
+                            onMouseDown={() => {
+                              setInvoice(prev => ({ ...prev, CustomerID: c.CustomerID }));
+                              setShowSearchDropdown(false);
+                            }}
+                          >
+                            <div style={{ fontWeight: 600, color: 'var(--text-dark)' }}>{c.Name}</div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>ID: {c.CustomerID} • {c.Email}</div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
             {selectedCustDetails && (
               <div style={{ fontSize: '0.8rem', backgroundColor: '#f8fafc', padding: '12px', borderRadius: '6px', color: 'var(--text-muted)' }}>
@@ -1366,15 +1446,22 @@ function ServicesView({ services, headers, refreshData, showNotification }) {
             </tr>
           </thead>
           <tbody>
-            {services.map((s) => (
-              <tr key={s.ServiceID}>
-                <td style={{ fontWeight: 600, color: 'var(--text-dark)' }}>{s.Description}</td>
-                <td><span className="badge badge-draft">{s.Unit}</span></td>
-                <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--text-dark)' }}>
-                  {new Intl.NumberFormat().format(s.DefaultCost)}
-                </td>
-              </tr>
-            ))}
+            {services.map((s) => {
+              const formatCurrency = (val) => {
+                const cur = settings.default_currency || 'NGN';
+                const locale = cur === 'NGN' ? 'en-NG' : undefined;
+                return new Intl.NumberFormat(locale, { style: 'currency', currency: cur, maximumFractionDigits: 0 }).format(val);
+              };
+              return (
+                <tr key={s.ServiceID}>
+                  <td style={{ fontWeight: 600, color: 'var(--text-dark)' }}>{s.Description}</td>
+                  <td><span className="badge badge-draft">{s.Unit}</span></td>
+                  <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--text-dark)' }}>
+                    {formatCurrency(s.DefaultCost)}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -1570,6 +1657,204 @@ function SettingsView({ settings, headers, refreshData, showNotification }) {
           Save Branding settings
         </button>
       </form>
+    </div>
+  );
+}
+
+// 6. Manage Users View (Super Admin only)
+function ManageUsersView({ headers, showNotification }) {
+  const [users, setUsers] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [newUser, setNewUser] = useState({
+    Username: '',
+    Password: '',
+    Name: '',
+    Email: '',
+    Role: 'Staff'
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const fetchUsers = async () => {
+    setIsLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/users`, { headers });
+      const data = await safeJson(res);
+      if (res.ok) {
+        setUsers(data);
+      } else {
+        throw new Error(data.error || 'Failed to fetch users');
+      }
+    } catch (e) {
+      showNotification('error', e.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchUsers();
+  }, []);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!newUser.Username || !newUser.Password || !newUser.Name || !newUser.Email) {
+      alert('Please fill out all fields.');
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/users`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(newUser)
+      });
+      const data = await safeJson(res);
+      if (res.ok) {
+        showNotification('success', `User ${newUser.Username} created successfully.`);
+        setNewUser({
+          Username: '',
+          Password: '',
+          Name: '',
+          Email: '',
+          Role: 'Staff'
+        });
+        fetchUsers();
+      } else {
+        throw new Error(data.error || 'Failed to create user.');
+      }
+    } catch (e) {
+      showNotification('error', e.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+        <div>
+          <h1 style={{ margin: 0, fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '1.75rem' }}>User Management</h1>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Create and manage accounts for Admin and Staff users</p>
+        </div>
+      </div>
+
+      <div className="creator-container">
+        {/* Left Side: Create User Form */}
+        <div className="creator-panel-left" style={{ flex: '1 1 350px' }}>
+          <form onSubmit={handleSubmit} className="form-section">
+            <h3 className="form-section-title">Add New User</h3>
+            
+            <div className="form-group">
+              <label>Full Name <span className="required">*</span></label>
+              <input 
+                type="text" 
+                className="input-control" 
+                placeholder="e.g. John Doe"
+                value={newUser.Name}
+                onChange={e => setNewUser(prev => ({ ...prev, Name: e.target.value }))}
+                required
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Email Address <span className="required">*</span></label>
+              <input 
+                type="email" 
+                className="input-control" 
+                placeholder="e.g. john@valora.com"
+                value={newUser.Email}
+                onChange={e => setNewUser(prev => ({ ...prev, Email: e.target.value }))}
+                required
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Username <span className="required">*</span></label>
+              <input 
+                type="text" 
+                className="input-control" 
+                placeholder="e.g. johndoe"
+                value={newUser.Username}
+                onChange={e => setNewUser(prev => ({ ...prev, Username: e.target.value }))}
+                required
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Password <span className="required">*</span></label>
+              <input 
+                type="password" 
+                className="input-control" 
+                placeholder="••••••••"
+                value={newUser.Password}
+                onChange={e => setNewUser(prev => ({ ...prev, Password: e.target.value }))}
+                required
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Access Role <span className="required">*</span></label>
+              <select 
+                className="input-control"
+                value={newUser.Role}
+                onChange={e => setNewUser(prev => ({ ...prev, Role: e.target.value }))}
+                required
+              >
+                <option value="Staff">Staff</option>
+                <option value="Admin">Admin</option>
+              </select>
+            </div>
+
+            <button type="submit" className="btn btn-primary" style={{ marginTop: '8px', width: '100%' }} disabled={isSubmitting}>
+              {isSubmitting ? 'Creating...' : 'Create User'}
+            </button>
+          </form>
+        </div>
+
+        {/* Right Side: Users List Table */}
+        <div className="creator-panel-right" style={{ flex: '2 1 500px' }}>
+          <div className="table-container" style={{ margin: 0 }}>
+            {isLoading ? (
+              <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                <RefreshCw className="animate-spin" size={32} style={{ marginBottom: '12px' }} />
+                <p>Loading users...</p>
+              </div>
+            ) : users.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                <Users size={48} style={{ opacity: 0.3, marginBottom: '12px' }} />
+                <p>No users found in database.</p>
+              </div>
+            ) : (
+              <table className="table-invoices">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Username</th>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Created</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.map((u) => (
+                    <tr key={u.Username}>
+                      <td style={{ fontWeight: 600, color: 'var(--text-dark)' }}>{u.Name}</td>
+                      <td>{u.Username}</td>
+                      <td>{u.Email}</td>
+                      <td>
+                        <span className={`badge badge-${u.Role === 'Super Admin' ? 'paid' : u.Role === 'Admin' ? 'sent' : 'draft'}`}>
+                          {u.Role}
+                        </span>
+                      </td>
+                      <td>{u.DateCreated}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
