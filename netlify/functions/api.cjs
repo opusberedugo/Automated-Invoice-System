@@ -8,6 +8,9 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+const fs = require('fs');
+const path = require('path');
+
 // Path rewriter for Netlify Serverless environment
 app.use((req, res, next) => {
   if (req.url.startsWith('/.netlify/functions/api')) {
@@ -16,25 +19,85 @@ app.use((req, res, next) => {
   next();
 });
 
-// Helper to get Google Sheets Client
-async function getSheetsClient(req) {
-  let email = req.headers['x-google-email'] || req.query.googleEmail;
-  let privateKey = req.headers['x-google-key'] || req.query.googleKey;
-  let sheetId = req.headers['x-sheet-id'] || req.query.sheetId;
+// Fixed credentials for Valora
+const VALORA_SHEET_ID = '1aIOqrCVi7oVhQ0NntAoS0B5VdPcQ8wumWwK3OS9yV6Y';
+let valoraEmail = '';
+let valoraKey = '';
 
-  // Base64 decode private key if formatted that way to prevent headers newline issues
-  if (privateKey && !privateKey.includes('-----BEGIN PRIVATE KEY-----')) {
-    try {
-      privateKey = Buffer.from(privateKey, 'base64').toString('utf-8');
-    } catch (e) {
-      // Allow fallback
+try {
+  // 1. Try to load from environment variable (JSON string)
+  if (process.env.GOOGLE_CREDS_JSON) {
+    const creds = JSON.parse(process.env.GOOGLE_CREDS_JSON);
+    valoraEmail = creds.client_email;
+    valoraKey = creds.private_key;
+  }
+  // 2. Try to load from local file (for local development/testing)
+  else {
+    const credsPath = path.join(process.cwd(), 'invoice-system-500508-199b695d1293.json');
+    if (fs.existsSync(credsPath)) {
+      const creds = JSON.parse(fs.readFileSync(credsPath, 'utf8'));
+      valoraEmail = creds.client_email;
+      valoraKey = creds.private_key;
+    }
+  }
+} catch (e) {
+  console.warn('Failed to resolve service account credentials:', e.message);
+}
+
+// 3. Fallbacks to raw env variables if still empty
+if (!valoraEmail) valoraEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+if (!valoraKey) valoraKey = process.env.GOOGLE_PRIVATE_KEY;
+
+// User Roles definitions
+const USERS = {
+  admin: {
+    username: 'admin',
+    password: process.env.ADMIN_PASSWORD || 'ValoraAdmin2026!',
+    role: 'admin'
+  },
+  staff: {
+    username: 'staff',
+    password: process.env.STAFF_PASSWORD || 'ValoraStaff2026!',
+    role: 'staff'
+  }
+};
+
+// Access Authentication Middleware
+app.use((req, res, next) => {
+  // Exclude login, ping from auth
+  if (req.path === '/api/login' || req.path === '/api/ping') {
+    return next();
+  }
+
+  // Preflight requests don't have authorization headers
+  if (req.method === 'OPTIONS') {
+    return next();
+  }
+
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.split(' ')[1];
+    if (token.startsWith('valora-token-')) {
+      const role = token.split('-')[2]; // Extract role from e.g. valora-token-admin-XYZ
+      req.user = { role };
+
+      // Role check for modifying settings
+      if (req.path === '/api/settings' && req.method === 'POST' && role !== 'admin') {
+        return res.status(403).json({ error: 'Access Denied: Only Admins can modify settings.' });
+      }
+
+      return next();
     }
   }
 
-  // Fallback to Env variables
-  if (!email) email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-  if (!privateKey) privateKey = process.env.GOOGLE_PRIVATE_KEY;
-  if (!sheetId) sheetId = process.env.GOOGLE_SHEET_ID;
+  return res.status(401).json({ error: 'Unauthorized: Please log in.' });
+});
+
+// Helper to get Google Sheets Client
+async function getSheetsClient(req) {
+  const email = valoraEmail;
+  const privateKey = valoraKey;
+  const sheetId = VALORA_SHEET_ID;
 
   if (!email || !privateKey || !sheetId) {
     throw new Error('MISSING_CONFIG');
@@ -54,6 +117,7 @@ async function getSheetsClient(req) {
   const sheets = google.sheets({ version: 'v4', auth });
   return { sheets, sheetId };
 }
+
 
 // Convert sheet rows (2D array) to Array of Objects using headers row
 function rowsToObjects(rows) {
@@ -132,7 +196,25 @@ async function updateRow(sheets, sheetId, tabName, keyColumnName, keyValue, head
   });
 }
 
-// --- API Endpoints ---
+// Auth Endpoint
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username and password are required' });
+  }
+
+  const user = USERS[username.toLowerCase()];
+  if (user && user.password === password) {
+    res.json({
+      success: true,
+      username: user.username,
+      role: user.role,
+      token: `valora-token-${user.role}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`
+    });
+  } else {
+    res.status(401).json({ error: 'Invalid username or password' });
+  }
+});
 
 // 1. Connection check & config verification
 app.get('/api/check-connection', async (req, res) => {

@@ -38,16 +38,15 @@ async function safeJson(res) {
 }
 
 export default function App() {
-  // Connection states
-  const [connection, setConnection] = useState(() => {
-    const saved = localStorage.getItem('invoice_db_connection');
+  // User authentication state
+  const [auth, setAuth] = useState(() => {
+    const saved = localStorage.getItem('valora_auth');
     return saved ? JSON.parse(saved) : null;
   });
 
-  const [wizardData, setWizardData] = useState({
-    sheetId: '',
-    googleEmail: '',
-    googleKey: ''
+  const [loginData, setLoginData] = useState({
+    username: '',
+    password: ''
   });
 
   // App core states
@@ -65,18 +64,16 @@ export default function App() {
 
   // Connection Headers Helper
   const getHeaders = () => {
-    if (!connection) return {};
+    if (!auth) return {};
     return {
-      'x-sheet-id': connection.sheetId,
-      'x-google-email': connection.googleEmail,
-      'x-google-key': connection.googleKey,
+      'Authorization': `Bearer ${auth.token}`,
       'Content-Type': 'application/json'
     };
   };
 
   // Fetch core data from Google Sheet
   const fetchAllData = async () => {
-    if (!connection) return;
+    if (!auth) return;
     setIsLoading(true);
     try {
       const headers = getHeaders();
@@ -112,10 +109,10 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (connection) {
+    if (auth) {
       fetchAllData();
     }
-  }, [connection]);
+  }, [auth]);
 
   // Inject primary brand color into HTML styles
   useEffect(() => {
@@ -132,41 +129,31 @@ export default function App() {
     setTimeout(() => setGlobalNotification(null), 4000);
   };
 
-  // Handle connection submit in setup wizard
-  const handleConnect = async (e) => {
+  // Handle Login submission
+  const handleLoginSubmit = async (e) => {
     e.preventDefault();
     setWizardError('');
     setWizardSuccess('');
     setIsLoading(true);
 
     try {
-      let sheetId = wizardData.sheetId.trim();
-      let email = wizardData.googleEmail.trim();
-      let key = wizardData.googleKey.trim();
-
-      if (key.startsWith('{')) {
-        // User pasted service account JSON
-        try {
-          const parsed = JSON.parse(key);
-          if (parsed.private_key && parsed.client_email) {
-            email = parsed.client_email;
-            key = parsed.private_key;
-          } else {
-            throw new Error('Pasted JSON does not contain private_key or client_email.');
-          }
-        } catch (je) {
-          throw new Error('Invalid JSON format. Please verify file contents.');
-        }
+      const res = await fetch(`${API_BASE}/api/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(loginData)
+      });
+      const data = await safeJson(res);
+      if (data.success) {
+        const authData = { username: data.username, role: data.role, token: data.token };
+        localStorage.setItem('valora_auth', JSON.stringify(authData));
+        setWizardSuccess('Login successful!');
+        setTimeout(() => {
+          setAuth(authData);
+          setWizardSuccess('');
+        }, 800);
+      } else {
+        throw new Error(data.error || 'Invalid credentials');
       }
-
-      if (!sheetId || !email || !key) {
-        throw new Error('All connection fields are required.');
-      }
-
-      // Always base64 encode key to safely transmit via HTTP headers
-      const encodedKey = btoa(key.replace(/\r/g, '').trim());
-
-      await testConnection(sheetId, email, encodedKey);
     } catch (err) {
       setWizardError(err.message);
     } finally {
@@ -174,32 +161,10 @@ export default function App() {
     }
   };
 
-  const testConnection = async (sheetId, email, encodedKey) => {
-    const res = await fetch(`${API_BASE}/api/check-connection`, {
-      headers: {
-        'x-sheet-id': sheetId,
-        'x-google-email': email,
-        'x-google-key': encodedKey
-      }
-    });
-    const data = await safeJson(res);
-    if (!data.connected) {
-      throw new Error(data.error || 'Failed to connect. Please verify Google Sheet ID and share settings.');
-    }
-    
-    const connObj = { sheetId, googleEmail: email, googleKey: encodedKey };
-    localStorage.setItem('invoice_db_connection', JSON.stringify(connObj));
-    setWizardSuccess(`Successfully connected to sheet!`);
-    setTimeout(() => {
-      setConnection(connObj);
-      setWizardSuccess('');
-    }, 1000);
-  };
-
-  const handleDisconnect = () => {
-    if (confirm('Disconnect from current Google Sheet database? All local configs will be cleared.')) {
-      localStorage.removeItem('invoice_db_connection');
-      setConnection(null);
+  const handleLogout = () => {
+    if (confirm('Are you sure you want to log out?')) {
+      localStorage.removeItem('valora_auth');
+      setAuth(null);
       setInvoices([]);
       setCustomers([]);
       setServices([]);
@@ -208,80 +173,57 @@ export default function App() {
     }
   };
 
-  if (!connection) {
+  if (!auth) {
     return (
-      <div className="wizard-box">
-        <div className="logo-container" style={{ justifyContent: 'center', marginBottom: '10px' }}>
-          <div className="logo-icon">A</div>
-          <span>Arsa Billing Setup</span>
-        </div>
-        <h2 className="wizard-title">Connect Google Sheets</h2>
-        <p className="wizard-desc">
-          Link your Google Sheet database. Share your spreadsheet with the service account email as <strong>Editor</strong>.
-        </p>
-
-        {wizardError && <div className="wizard-status error"><AlertCircle size={16} style={{ verticalAlign: 'middle', marginRight: '6px' }} />{wizardError}</div>}
-        {wizardSuccess && <div className="wizard-status success"><Check size={16} style={{ verticalAlign: 'middle', marginRight: '6px' }} />{wizardSuccess}</div>}
-
-        <form onSubmit={handleConnect} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div className="form-group">
-            <label htmlFor="sheetId">Google Sheet ID <span className="required">*</span></label>
-            <input 
-              type="text" 
-              id="sheetId" 
-              className="input-control" 
-              placeholder="e.g. 1a2b3c4d5e6f7g8h9i0j..."
-              value={wizardData.sheetId}
-              onChange={e => setWizardData(prev => ({ ...prev, sheetId: e.target.value }))}
-              required
-            />
+      <div className="login-container-box">
+        <div className="login-card">
+          <div className="login-logo-container">
+            <img src="/logo.svg" alt="Valora Logo" className="login-logo" />
+            <div className="login-brand-name">VALORA</div>
+            <div className="login-brand-tagline">INTEGRATION SOLUTIONS LIMITED</div>
           </div>
+          
+          <h2 className="login-title">Billing Portal</h2>
+          <p className="login-desc">Enter your administrative or staff credentials to sign in.</p>
 
-          <div className="form-group">
-            <label htmlFor="wizardCreds">Paste Service Account Key JSON <span className="required">*</span></label>
-            <textarea 
-              id="wizardCreds" 
-              className="input-control" 
-              style={{ minHeight: '120px', fontFamily: 'monospace', fontSize: '0.8rem' }}
-              placeholder='Paste full credentials JSON file contents here, or type raw keys below...'
-              value={wizardData.googleKey}
-              onChange={e => {
-                const val = e.target.value;
-                if (val.startsWith('{')) {
-                  setWizardData(prev => ({ ...prev, googleKey: val }));
-                } else {
-                  setWizardData(prev => ({ ...prev, googleKey: val }));
-                }
-              }}
-              required
-            />
-          </div>
+          {wizardError && <div className="wizard-status error"><AlertCircle size={16} style={{ verticalAlign: 'middle', marginRight: '6px' }} />{wizardError}</div>}
+          {wizardSuccess && <div className="wizard-status success"><Check size={16} style={{ verticalAlign: 'middle', marginRight: '6px' }} />{wizardSuccess}</div>}
 
-          <div className="form-group" style={{ opacity: wizardData.googleKey.startsWith('{') ? 0.4 : 1 }}>
-            <label htmlFor="googleEmail">Service Account Email</label>
-            <input 
-              type="email" 
-              id="googleEmail" 
-              className="input-control" 
-              placeholder="your-service-account@project.iam.gserviceaccount.com"
-              value={wizardData.googleEmail}
-              onChange={e => setWizardData(prev => ({ ...prev, googleEmail: e.target.value }))}
-              disabled={wizardData.googleKey.startsWith('{')}
-            />
-          </div>
+          <form onSubmit={handleLoginSubmit} className="login-form">
+            <div className="form-group">
+              <label htmlFor="username">Username</label>
+              <input 
+                type="text" 
+                id="username" 
+                className="input-control" 
+                placeholder="e.g. admin or staff"
+                value={loginData.username}
+                onChange={e => setLoginData(prev => ({ ...prev, username: e.target.value }))}
+                required
+              />
+            </div>
 
-          <button 
-            type="submit" 
-            className="btn btn-primary" 
-            style={{ width: '100%', padding: '12px', marginTop: '8px' }}
-            disabled={isLoading}
-          >
-            {isLoading ? <RefreshCw className="animate-spin" size={18} /> : <Database size={18} />}
-            Connect Database
-          </button>
-        </form>
-        <div style={{ textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '10px' }}>
-          <a href="https://console.cloud.google.com" target="_blank" rel="noreferrer" style={{ textDecoration: 'underline' }}>Create Service Account in Google Console</a>
+            <div className="form-group">
+              <label htmlFor="password">Password</label>
+              <input 
+                type="password" 
+                id="password" 
+                className="input-control" 
+                placeholder="••••••••"
+                value={loginData.password}
+                onChange={e => setLoginData(prev => ({ ...prev, password: e.target.value }))}
+                required
+              />
+            </div>
+
+            <button 
+              type="submit" 
+              className="btn btn-primary login-btn"
+              disabled={isLoading}
+            >
+              {isLoading ? <RefreshCw className="animate-spin" size={18} /> : 'Sign In'}
+            </button>
+          </form>
         </div>
       </div>
     );
@@ -291,10 +233,10 @@ export default function App() {
     <>
       <header className="navbar">
         <div className="logo-container">
-          <div className="logo-icon">{settings.company_name ? settings.company_name[0] : 'A'}</div>
+          <img src="/logo.svg" alt="Valora Logo" className="navbar-logo" />
           <div>
-            <div>{settings.company_name || 'Arsa Billing'}</div>
-            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 400 }}>Connected sheets database</div>
+            <div className="navbar-brand-title">VALORA</div>
+            <div className="navbar-brand-subtitle">Billing Portal • {auth.role === 'admin' ? 'Admin' : 'Staff'}</div>
           </div>
         </div>
 
@@ -323,20 +265,22 @@ export default function App() {
           >
             Services
           </div>
-          <div 
-            className={`nav-link ${currentTab === 'settings' ? 'active' : ''}`}
-            onClick={() => setCurrentTab('settings')}
-          >
-            Settings
-          </div>
+          {auth.role === 'admin' && (
+            <div 
+              className={`nav-link ${currentTab === 'settings' ? 'active' : ''}`}
+              onClick={() => setCurrentTab('settings')}
+            >
+              Settings
+            </div>
+          )}
         </nav>
 
         <div className="nav-actions">
-          <button className="btn btn-secondary" onClick={fetchAllData} disabled={isLoading} title="Sync database">
+          <button className="btn btn-secondary btn-sync" onClick={fetchAllData} disabled={isLoading} title="Sync database">
             <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
             Sync
           </button>
-          <button className="btn btn-danger" onClick={handleDisconnect} title="Disconnect sheet">
+          <button className="btn btn-danger btn-logout" onClick={handleLogout} title="Sign Out">
             <LogOut size={16} />
           </button>
         </div>
@@ -446,8 +390,9 @@ function DashboardView({ invoices, settings, onNavigate, headers, refreshData, s
     });
 
     const formatCurrency = (val) => {
-      const cur = settings.default_currency || 'USD';
-      return new Intl.NumberFormat(undefined, { style: 'currency', currency: cur, maximumFractionDigits: 0 }).format(val);
+      const cur = settings.default_currency || 'NGN';
+      const locale = cur === 'NGN' ? 'en-NG' : undefined;
+      return new Intl.NumberFormat(locale, { style: 'currency', currency: cur, maximumFractionDigits: 0 }).format(val);
     };
 
     return {
@@ -745,8 +690,32 @@ function InvoiceBuilderView({ customers, services, settings, headers, refreshDat
     }
   };
 
+  const parseDateParts = (dateString) => {
+    if (!dateString) return { day: 'DD', month: 'MM', year: 'YYYY' };
+    try {
+      const d = new Date(dateString);
+      if (isNaN(d.getTime())) {
+        const parts = dateString.split('-');
+        if (parts.length === 3) {
+          return { day: parts[2], month: parts[1], year: parts[0] };
+        }
+        return { day: 'DD', month: 'MM', year: 'YYYY' };
+      }
+      const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+      return {
+        day: String(d.getDate()).padStart(2, '0'),
+        month: months[d.getMonth()],
+        year: String(d.getFullYear())
+      };
+    } catch (e) {
+      return { day: 'DD', month: 'MM', year: 'YYYY' };
+    }
+  };
+
   const formatCurrency = (val) => {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency: settings.default_currency || 'USD', maximumFractionDigits: 0 }).format(val);
+    const cur = settings.default_currency || 'NGN';
+    const locale = cur === 'NGN' ? 'en-NG' : undefined;
+    return new Intl.NumberFormat(locale, { style: 'currency', currency: cur, maximumFractionDigits: 0 }).format(val);
   };
 
   return (
@@ -945,130 +914,219 @@ function InvoiceBuilderView({ customers, services, settings, headers, refreshDat
 
             {/* A4 Paper Template */}
             <div className="invoice-paper" id="invoice-paper-element">
-              
-              <div className="paper-header">
-                <div>
-                  {settings.company_logo ? (
-                    <img src={settings.company_logo} alt="Company logo" className="paper-logo" />
-                  ) : (
-                    <div className="paper-logo-fallback">{settings.company_name ? settings.company_name[0] : 'A'}</div>
-                  )}
-                </div>
-                <div className="paper-meta">
-                  <div className="paper-title">INVOICE</div>
-                  <div className="paper-invoice-num">#INV-YYYY-XXXX</div>
-                </div>
-              </div>
-
-              <div className="paper-dates-grid">
-                <div>
-                  <div className="date-block-title">Issue Date</div>
-                  <div className="date-block-val">{invoice.IssueDate}</div>
-                </div>
-                <div>
-                  <div className="date-block-title">Due Date</div>
-                  <div className="date-block-val" style={{ fontWeight: 600 }}>{invoice.DueDate}</div>
-                </div>
-                <div>
-                  <div className="date-block-title">Payment Terms</div>
-                  <div className="date-block-val">{invoice.PaymentTerms}</div>
-                </div>
-              </div>
-
-              <div className="paper-billing-grid">
-                <div>
-                  <div className="bill-title">Billed By</div>
-                  <div className="bill-name">{settings.company_name || 'My Brand Name'}</div>
-                  <div className="bill-address">
-                    {settings.company_address}<br/>
-                    {settings.company_email && `Email: ${settings.company_email}`}<br/>
-                    {settings.company_phone && `Phone: ${settings.company_phone}`}
+              {/* Header section */}
+              <div className="valora-header">
+                <div className="valora-header-left">
+                  <img src="/logo.svg" alt="Valora Logo" className="valora-paper-logo" />
+                  <div className="valora-brand-title">VALORA</div>
+                  <div className="valora-brand-subtitle">INTEGRATION SOLUTIONS LIMITED</div>
+                  
+                  <div className="valora-invoice-title-block">
+                    <h1 className="valora-invoice-title">INVOICE</h1>
+                    <div className="valora-invoice-num-pill">
+                      INVOICE NO. <span>{invoice.InvoiceID || 'INV-2025-XXXX'}</span>
+                    </div>
                   </div>
                 </div>
-                <div>
-                  <div className="bill-title">Billed To</div>
-                  <div className="bill-name">{selectedCustDetails?.Name || 'Client Business Name'}</div>
-                  <div className="bill-address">
-                    {selectedCustDetails?.Address || 'Client Billing Address'}<br/>
-                    {selectedCustDetails?.Email && `Email: ${selectedCustDetails.Email}`}<br/>
-                    {selectedCustDetails?.Phone && `Phone: ${selectedCustDetails.Phone}`}
+
+                <div className="valora-header-right">
+                  <div className="valora-contact-block">
+                    <div className="valora-contact-item">
+                      <span className="valora-contact-icon">📞</span>
+                      <span>+234 806 346 9170</span>
+                    </div>
+                    <div className="valora-contact-item">
+                      <span className="valora-contact-icon">📍</span>
+                      <span className="valora-contact-address">
+                        No 3 Worji Close, Magrove Lane,<br />
+                        Woju Road, Port Harcourt,<br />
+                        Rivers State, Nigeria.
+                      </span>
+                    </div>
+                    <div className="valora-contact-item">
+                      <span className="valora-contact-icon">✉️</span>
+                      <span>info@valora.com.ng</span>
+                    </div>
+                    <div className="valora-contact-item">
+                      <span className="valora-contact-icon">🌐</span>
+                      <span>www.valora.com.ng</span>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* Items list */}
-              <table className="paper-table">
-                <thead>
-                  <tr>
-                    <th style={{ width: '50%' }}>Item Description</th>
-                    <th style={{ width: '15%' }}>Qty</th>
-                    <th style={{ width: '15%' }}>Cost</th>
-                    <th style={{ width: '20%', textAlign: 'right' }}>Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((item, idx) => (
-                    <tr key={idx}>
-                      <td style={{ fontWeight: 500, color: 'var(--text-dark)' }}>{item.Description || 'Untitled Item'}</td>
-                      <td>{item.QTY} {item.Unit || 'page'}</td>
-                      <td>{formatCurrency(item.Cost)}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{formatCurrency(Number(item.QTY || 0) * Number(item.Cost || 0))}</td>
+              {/* Bill To & Date section */}
+              <div className="valora-bill-date-section">
+                <div className="valora-bill-to-box">
+                  <div className="valora-bill-to-tab">BILL TO</div>
+                  <div className="valora-bill-to-content">
+                    <div className="valora-bill-row">
+                      <span className="valora-bill-icon">👤</span>
+                      <span className="valora-bill-label">Name:</span>
+                      <span className="valora-bill-value">{selectedCustDetails?.Name || '______________________________________'}</span>
+                    </div>
+                    <div className="valora-bill-row">
+                      <span className="valora-bill-icon">🏢</span>
+                      <span className="valora-bill-label">Address:</span>
+                      <span className="valora-bill-value valora-bill-address">{selectedCustDetails?.Address || '______________________________________'}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="valora-date-box">
+                  <div className="valora-date-header">
+                    <span className="valora-date-icon">📅</span>
+                    <span className="valora-date-title">INVOICE DATE</span>
+                  </div>
+                  <div className="valora-date-grid">
+                    <div className="valora-date-part">
+                      <div className="valora-date-val">{parseDateParts(invoice.IssueDate).day}</div>
+                      <div className="valora-date-lbl">DAY</div>
+                    </div>
+                    <div className="valora-date-part">
+                      <div className="valora-date-val">{parseDateParts(invoice.IssueDate).month}</div>
+                      <div className="valora-date-lbl">MONTH</div>
+                    </div>
+                    <div className="valora-date-part">
+                      <div className="valora-date-val">{parseDateParts(invoice.IssueDate).year}</div>
+                      <div className="valora-date-lbl">YEAR</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Table section */}
+              <div className="valora-table-container">
+                <table className="valora-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: '8%' }}>#</th>
+                      <th style={{ width: '52%', textAlign: 'left' }}>DESCRIPTION</th>
+                      <th style={{ width: '10%' }}>QTY</th>
+                      <th style={{ width: '15%' }}>UNIT PRICE</th>
+                      <th style={{ width: '15%', textAlign: 'right' }}>AMOUNT</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {/* Render active items */}
+                    {items.map((item, idx) => (
+                      <tr key={idx}>
+                        <td>{idx + 1}</td>
+                        <td style={{ textAlign: 'left', fontWeight: 500 }}>{item.Description || 'Untitled Item'}</td>
+                        <td>{item.QTY}</td>
+                        <td>{formatCurrency(item.Cost)}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 700 }}>{formatCurrency(Number(item.QTY || 0) * Number(item.Cost || 0))}</td>
+                      </tr>
+                    ))}
+                    {/* Pad up to 12 rows */}
+                    {items.length < 12 && Array.from({ length: 12 - items.length }).map((_, idx) => {
+                      const rowNum = items.length + idx + 1;
+                      return (
+                        <tr key={`empty-${idx}`} className="valora-empty-row">
+                          <td>{rowNum}</td>
+                          <td></td>
+                          <td></td>
+                          <td></td>
+                          <td style={{ textAlign: 'right' }}></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
 
-              <div className="paper-summary-section">
-                <div className="bank-details-box">
-                  <div className="bank-details-title">Bank Details</div>
-                  <div className="bank-row">
-                    <span>Bank Name:</span>
-                    <span>{settings.bank_name || 'N/A'}</span>
+              {/* Summary and Payment section */}
+              <div className="valora-summary-payment-grid">
+                {/* Left side: Payment Info & Terms */}
+                <div className="valora-payment-terms-side">
+                  <div className="valora-payment-box">
+                    <div className="valora-payment-title">PAYMENT INFORMATION</div>
+                    <div className="valora-payment-row">
+                      <span className="valora-payment-icon">🏛️</span>
+                      <span className="valora-payment-label">Bank Name:</span>
+                      <span className="valora-payment-value">{settings.bank_name || '__________________________'}</span>
+                    </div>
+                    <div className="valora-payment-row">
+                      <span className="valora-payment-icon">💳</span>
+                      <span className="valora-payment-label">Account Name:</span>
+                      <span className="valora-payment-value">{settings.bank_account_name || '__________________________'}</span>
+                    </div>
+                    <div className="valora-payment-row">
+                      <span className="valora-payment-icon">📋</span>
+                      <span className="valora-payment-label">Account Number:</span>
+                      <span className="valora-payment-value">{settings.bank_account_number || '__________________________'}</span>
+                    </div>
                   </div>
-                  <div className="bank-row">
-                    <span>Account Name:</span>
-                    <span>{settings.bank_account_name || 'N/A'}</span>
-                  </div>
-                  <div className="bank-row">
-                    <span>Account Number:</span>
-                    <span>{settings.bank_account_number || 'N/A'}</span>
+
+                  <div className="valora-terms-box">
+                    <div className="valora-section-title">
+                      <span className="valora-title-icon">📋</span> TERMS & CONDITIONS
+                    </div>
+                    <ul className="valora-terms-list">
+                      <li>Payment is due within 7 days from the invoice date.</li>
+                      <li>Please make payment to the account details provided.</li>
+                      <li>Thank you for your business!</li>
+                    </ul>
                   </div>
                 </div>
 
-                <div>
-                  <table className="summary-totals-table">
-                    <tbody>
-                      <tr>
-                        <td style={{ color: 'var(--text-muted)' }}>Subtotal:</td>
-                        <td style={{ textAlign: 'right', fontWeight: 500 }}>{formatCurrency(finances.subtotal)}</td>
-                      </tr>
-                      {invoice.Discount > 0 && (
-                        <tr>
-                          <td style={{ color: 'var(--text-muted)' }}>Discount:</td>
-                          <td style={{ textAlign: 'right', color: '#b91c1c' }}>-{formatCurrency(invoice.Discount)}</td>
-                        </tr>
-                      )}
-                      <tr>
-                        <td style={{ color: 'var(--text-muted)' }}>Tax ({(invoice.TaxRate * 100).toFixed(0)}%):</td>
-                        <td style={{ textAlign: 'right', fontWeight: 500 }}>{formatCurrency(finances.taxAmount)}</td>
-                      </tr>
-                      <tr className="total-row">
-                        <td>Total Amount:</td>
-                        <td style={{ textAlign: 'right' }}>{formatCurrency(finances.total)}</td>
-                      </tr>
-                    </tbody>
-                  </table>
+                {/* Right side: Summary & Totals */}
+                <div className="valora-totals-side">
+                  <div className="valora-summary-box">
+                    <div className="valora-summary-title">SUMMARY</div>
+                    <div className="valora-summary-row">
+                      <span>SUBTOTAL</span>
+                      <span>{formatCurrency(finances.subtotal)}</span>
+                    </div>
+                    {invoice.Discount > 0 && (
+                      <div className="valora-summary-row discount">
+                        <span>DISCOUNT</span>
+                        <span>-{formatCurrency(invoice.Discount)}</span>
+                      </div>
+                    )}
+                    <div className="valora-summary-row">
+                      <span>TAX ({(invoice.TaxRate * 100).toFixed(0)}%)</span>
+                      <span>{formatCurrency(finances.taxAmount)}</span>
+                    </div>
+
+                    <div className="valora-total-pill">
+                      <div className="valora-total-lbl">TOTAL</div>
+                      <div className="valora-total-val">{formatCurrency(finances.total)}</div>
+                    </div>
+                  </div>
+
+                  <div className="valora-thankyou-box">
+                    <div className="valora-thankyou-title">
+                      <span className="valora-title-icon">🤝</span> THANK YOU
+                    </div>
+                    <p className="valora-thankyou-text">
+                      We appreciate your trust in Valora Integration Solutions Limited.
+                    </p>
+                  </div>
                 </div>
               </div>
 
-              {invoice.Notes && (
-                <div className="paper-notes">
-                  <div className="paper-notes-title">Notes</div>
-                  <div className="paper-notes-val">{invoice.Notes}</div>
+              {/* Bottom footer signature block & banner */}
+              <div className="valora-footer-signature-row">
+                <div className="valora-signature-block">
+                  <div className="valora-signature-title">
+                    <span className="valora-title-icon">✍️</span> CUSTOMER SIGNATURE
+                  </div>
+                  <div className="valora-signature-line"></div>
                 </div>
-              )}
+              </div>
 
+              {/* Bottom banner strip */}
+              <div className="valora-bottom-banner">
+                <div className="valora-banner-left">
+                  Integrating Solutions, Delivering Value.
+                </div>
+                <div className="valora-banner-right">
+                  <div className="valora-banner-drop">💧</div>
+                </div>
+              </div>
             </div>
+
           </div>
         </div>
       </div>

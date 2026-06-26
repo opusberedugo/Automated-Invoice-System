@@ -1,13 +1,13 @@
 /* Custom Premium Design System */
 
 :root {
-  --primary: #101827; /* Rich dark slate */
-  --primary-hover: #1f2937;
-  --accent: #2563eb; /* Royal blue */
-  --accent-light: #eff6ff;
-  --accent-border: #bfdbfe;
+  --primary: #031B49; /* Valora Navy Blue */
+  --primary-hover: #021233;
+  --accent: #296CBB; /* Valora Medium Blue */
+  --accent-light: #f0f6fc;
+  --accent-border: #adc8ec;
   
-  --bg-app: #f8fafc; /* Sleek light mode background */
+  --bg-app: #f4f6f9; /* Soft gray background */
   --bg-card: #ffffff;
   --border: #e2e8f0;
   --border-focus: #94a3b8;
@@ -780,10 +780,717 @@ select.input-control {
   .invoice-paper {
     border: none !important;
     box-shadow: none !important;
-    padding: 0 !important;
+    padding: 36px !important;
     margin: 0 !important;
     width: 100% !important;
     height: auto !important;
     aspect-ratio: auto !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .valora-contact-block {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .valora-bottom-banner {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 }
+
+/* ==========================================================================
+   Valora Custom Branding & Login Styles
+   ========================================================================== */
+
+/* Navbar logo & headers styling */
+.navbar-logo {
+  height: 38px;
+  width: auto;
+  object-fit: contain;
+  margin-right: 4px;
+}
+
+.navbar-brand-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.25rem;
+  color: var(--primary);
+  line-height: 1.1;
+}
+
+.navbar-brand-subtitle {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.btn-sync {
+  color: var(--primary) !important;
+  border-color: var(--border) !important;
+}
+
+.btn-sync:hover {
+  background-color: var(--accent-light) !important;
+  border-color: var(--accent-border) !important;
+}
+
+.btn-logout {
+  background-color: #ef4444 !important;
+  border-color: #ef4444 !important;
+}
+
+.btn-logout:hover {
+  background-color: #dc2626 !important;
+  border-color: #dc2626 !important;
+}
+
+/* Login Panel Layout */
+.login-container-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100vh - 120px);
+  background-color: var(--bg-app);
+  padding: 20px;
+}
+
+.login-card {
+  background-color: var(--bg-card);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border);
+  padding: 40px;
+  width: 100%;
+  max-width: 440px;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.login-logo-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.login-logo {
+  height: 80px;
+  width: auto;
+  object-fit: contain;
+  margin-bottom: 12px;
+}
+
+.login-brand-name {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.65rem;
+  color: var(--primary);
+  letter-spacing: 0.5px;
+  line-height: 1;
+}
+
+.login-brand-tagline {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 1.5px;
+  margin-top: 4px;
+}
+
+.login-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.25rem;
+  margin-bottom: 6px;
+  color: var(--text-dark);
+}
+
+.login-desc {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 24px;
+  line-height: 1.4;
+}
+
+.login-form {
+  text-align: left;
+}
+
+.login-btn {
+  width: 100%;
+  padding: 12px;
+  font-weight: 600;
+  background-color: var(--primary) !important;
+  border-color: var(--primary) !important;
+  margin-top: 10px;
+  transition: all 0.2s ease;
+}
+
+.login-btn:hover {
+  background-color: var(--primary-hover) !important;
+  border-color: var(--primary-hover) !important;
+}
+
+/* ==========================================================================
+   Valora A4 Paper Sheet Template Layout
+   ========================================================================== */
+
+.valora-header {
+  display: flex;
+  justify-content: space-between;
+  border-bottom: 2px solid var(--primary);
+  padding-bottom: 20px;
+  margin-bottom: 16px;
+  position: relative;
+}
+
+.valora-header-left {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-end;
+}
+
+.valora-paper-logo {
+  height: 70px;
+  width: auto;
+  object-fit: contain;
+  margin-bottom: 8px;
+}
+
+.valora-brand-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.7rem;
+  color: var(--primary);
+  line-height: 1;
+  letter-spacing: 0.5px;
+}
+
+.valora-brand-subtitle {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 1px;
+  margin-top: 2px;
+}
+
+.valora-invoice-title-block {
+  margin-top: 16px;
+}
+
+.valora-invoice-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 2.1rem;
+  color: var(--primary);
+  margin: 0;
+  line-height: 1;
+  letter-spacing: 0.5px;
+}
+
+.valora-invoice-num-pill {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+}
+
+.valora-invoice-num-pill span {
+  background-color: var(--primary);
+  color: white;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 0.78rem;
+  margin-left: 6px;
+}
+
+.valora-header-right {
+  width: 250px;
+  position: relative;
+}
+
+.valora-contact-block {
+  background-color: var(--primary);
+  color: white;
+  padding: 30px 24px 20px 24px;
+  border-radius: 0 0 0 50px;
+  font-size: 0.72rem;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+  position: absolute;
+  top: -36px;
+  right: -36px;
+  width: 260px;
+  min-height: 180px;
+  justify-content: center;
+  box-shadow: -2px 2px 10px rgba(3, 27, 73, 0.1);
+}
+
+.valora-contact-block::after {
+  content: '';
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  width: 30px;
+  height: 60px;
+  background-image: radial-gradient(circle, rgba(255,255,255,0.12) 20%, transparent 20%);
+  background-size: 8px 8px;
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.valora-contact-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  line-height: 1.4;
+}
+
+.valora-contact-icon {
+  font-size: 0.85rem;
+  opacity: 0.9;
+}
+
+.valora-contact-address {
+  display: block;
+}
+
+/* Bill To & Date block styling */
+.valora-bill-date-section {
+  display: grid;
+  grid-template-columns: 1fr 240px;
+  gap: 20px;
+  margin-bottom: 16px;
+}
+
+.valora-bill-to-box {
+  background-color: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 110px;
+}
+
+.valora-bill-to-tab {
+  background-color: var(--primary);
+  color: white;
+  padding: 6px 20px;
+  font-weight: 700;
+  font-size: 0.72rem;
+  letter-spacing: 0.5px;
+  width: fit-content;
+  border-bottom-right-radius: 12px;
+  clip-path: polygon(0 0, 100% 0, 85% 100%, 0 100%);
+}
+
+.valora-bill-to-content {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.valora-bill-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 0.78rem;
+}
+
+.valora-bill-icon {
+  font-size: 0.85rem;
+  color: var(--accent);
+}
+
+.valora-bill-label {
+  font-weight: 600;
+  color: var(--text-dark);
+  width: 55px;
+}
+
+.valora-bill-value {
+  color: var(--text-main);
+  font-weight: 500;
+  word-break: break-all;
+}
+
+.valora-bill-address {
+  display: block;
+  font-size: 0.74rem;
+  line-height: 1.4;
+}
+
+.valora-date-box {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background-color: #f8fafc;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 110px;
+}
+
+.valora-date-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px;
+  background-color: white;
+  border-bottom: 1px solid var(--border);
+  font-weight: 700;
+  font-size: 0.65rem;
+  color: var(--accent);
+  letter-spacing: 0.5px;
+}
+
+.valora-date-icon {
+  font-size: 0.75rem;
+}
+
+.valora-date-title {
+  margin-top: 1px;
+}
+
+.valora-date-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr 1fr;
+  flex: 1;
+  text-align: center;
+}
+
+.valora-date-part {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  border-right: 1px solid var(--border);
+  padding: 8px 4px;
+}
+
+.valora-date-part:last-child {
+  border-right: none;
+}
+
+.valora-date-val {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--primary);
+  line-height: 1;
+}
+
+.valora-date-lbl {
+  font-size: 0.55rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+/* Invoice Table Layout styling */
+.valora-table-container {
+  flex: 1;
+  margin-bottom: 16px;
+}
+
+.valora-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.valora-table th {
+  background-color: var(--primary) !important;
+  color: white;
+  padding: 9px 12px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  border: 1px solid var(--primary);
+}
+
+.valora-table td {
+  padding: 7px 12px;
+  font-size: 0.78rem;
+  color: var(--text-main);
+  border-bottom: 1px solid #f1f5f9;
+  border-left: 1px solid #f1f5f9;
+  border-right: 1px solid #f1f5f9;
+  text-align: center;
+}
+
+.valora-table tbody tr:nth-child(even) {
+  background-color: #f8fafc;
+}
+
+.valora-empty-row td {
+  color: transparent !important;
+  height: 29px; /* Matches default padding height */
+}
+
+/* Summary Grid & Payment Box */
+.valora-summary-payment-grid {
+  display: grid;
+  grid-template-columns: 1.25fr 1fr;
+  gap: 20px;
+  margin-bottom: 16px;
+}
+
+.valora-payment-terms-side {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.valora-payment-box {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 0.74rem;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background-color: #f8fafc;
+  margin-bottom: 12px;
+}
+
+.valora-payment-title {
+  font-weight: 700;
+  color: var(--accent);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+  margin-bottom: 2px;
+  font-size: 0.68rem;
+  letter-spacing: 0.5px;
+}
+
+.valora-payment-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.4;
+}
+
+.valora-payment-icon {
+  font-size: 0.85rem;
+  color: var(--accent);
+}
+
+.valora-payment-label {
+  color: var(--text-muted);
+  font-weight: 600;
+  width: 95px;
+}
+
+.valora-payment-value {
+  color: var(--text-dark);
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.valora-terms-box {
+  padding-left: 4px;
+}
+
+.valora-section-title {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 6px;
+  letter-spacing: 0.5px;
+}
+
+.valora-title-icon {
+  font-size: 0.8rem;
+}
+
+.valora-terms-list {
+  margin: 0;
+  padding-left: 14px;
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.valora-terms-list li {
+  margin-bottom: 3px;
+}
+
+.valora-totals-side {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.valora-summary-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  background-color: #f8fafc;
+  margin-bottom: 12px;
+}
+
+.valora-summary-title {
+  font-weight: 700;
+  color: var(--primary);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+  margin-bottom: 2px;
+  font-size: 0.68rem;
+  letter-spacing: 0.5px;
+}
+
+.valora-summary-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: var(--text-main);
+  font-weight: 500;
+}
+
+.valora-summary-row.discount {
+  color: #b91c1c;
+}
+
+.valora-total-pill {
+  background-color: var(--primary) !important;
+  color: white;
+  border-radius: 6px;
+  padding: 6px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.valora-total-lbl {
+  font-weight: 700;
+  font-size: 0.75rem;
+}
+
+.valora-total-val {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.valora-thankyou-box {
+  text-align: center;
+  padding: 0 10px;
+}
+
+.valora-thankyou-title {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-bottom: 4px;
+  letter-spacing: 0.5px;
+}
+
+.valora-thankyou-text {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.3;
+}
+
+/* Footer signature line styling */
+.valora-footer-signature-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: auto;
+  padding-top: 10px;
+  margin-bottom: 8px;
+}
+
+.valora-signature-block {
+  width: 210px;
+  text-align: center;
+}
+
+.valora-signature-title {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.valora-signature-line {
+  border-bottom: 1.5px dotted var(--border-focus);
+  width: 100%;
+}
+
+/* Bottom banner layout */
+.valora-bottom-banner {
+  background-color: var(--primary) !important;
+  color: white;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 24px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  position: relative;
+  overflow: hidden;
+  margin-left: -36px;
+  margin-right: -36px;
+  margin-bottom: -36px;
+  min-height: 34px;
+  box-sizing: border-box;
+}
+
+.valora-bottom-banner::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 45px;
+  background-color: var(--accent);
+  transform: skewX(-20deg) translateX(-18px);
+}
+
+.valora-banner-left {
+  font-style: italic;
+  font-weight: 500;
+  font-family: 'Georgia', serif;
+  letter-spacing: 0.5px;
+  z-index: 1;
+  padding-left: 8px;
+}
+
+.valora-banner-right {
+  display: flex;
+  align-items: center;
+  z-index: 1;
+}
+
+.valora-banner-drop {
+  font-size: 0.9rem;
+  color: var(--accent);
+}
+
