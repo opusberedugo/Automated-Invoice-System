@@ -1541,7 +1541,7 @@ select.input-control {
 /* Redesigned A4 Invoice Layout matching VALORA invoice_074839.jpg.jpeg */
 .valora-new-header-grid {
   display: grid;
-  grid-template-columns: 40% 60%;
+  grid-template-columns: 2fr 3fr;
   align-items: start;
   gap: 24px;
 }
@@ -1856,6 +1856,10 @@ select.input-control {
   @page {
     size: A4 portrait;
     margin: 15mm;
+  }
+
+  *, *::before, *::after {
+    box-sizing: border-box !important;
   }
 
   body {
