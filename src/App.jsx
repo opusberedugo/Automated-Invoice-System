@@ -385,6 +385,7 @@ export default function App() {
         {currentTab === 'services' && (
           <ServicesView 
             services={services} 
+            settings={settings}
             headers={getHeaders()}
             refreshData={fetchAllData}
             showNotification={showNotification}
@@ -1382,7 +1383,7 @@ function CustomersView({ customers, headers, refreshData, showNotification }) {
 }
 
 // 4. Services View
-function ServicesView({ services, headers, refreshData, showNotification }) {
+function ServicesView({ services, settings = {}, headers, refreshData, showNotification }) {
   const [newSrv, setNewSrv] = useState({ Description: '', Unit: 'page', DefaultCost: 0 });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showForm, setShowForm] = useState(false);
